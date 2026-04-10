@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1a2e">
+<link rel="manifest" href="manifest.json">
+<title>Room Planner</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; touch-action:none; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:#1a1a2e; color:#e0e0e0; display:flex; flex-direction:column; }
+
+  /* ---- TOP TOOLBAR ---- */
+  .top-bar {
+    height:44px; background:#16213e; display:flex; align-items:center;
+    padding:0 8px; gap:6px; border-bottom:1px solid #0f3460; flex-shrink:0; z-index:20;
+  }
+  .top-bar .title { font-size:14px; font-weight:700; color:#e94560; margin-right:auto; }
+  .top-bar .info { font-size:10px; color:#888; margin-right:4px; }
+
+  .btn {
+    padding:6px 10px; border:none; border-radius:6px; cursor:pointer;
+    font-size:11px; font-weight:600; transition:all .15s; white-space:nowrap;
+  }
+  .btn-icon {
+    width:34px; height:34px; padding:0; display:flex; align-items:center; justify-content:center;
+    font-size:16px; border-radius:8px; background:#0f3460; color:#ccc; border:none; cursor:pointer;
+  }
+  .btn-icon:hover, .btn-icon.active { background:#e94560; color:#fff; }
+  .btn-primary { background:#e94560; color:#fff; }
+  .btn-primary:hover { background:#c73652; }
+  .btn-secondary { background:#0f3460; color:#ccc; border:1px solid #1a3a6e; }
+  .btn-danger { background:#6b1525; color:#e94560; }
+
+  /* ---- CANVAS ---- */
+  .canvas-area { flex:1; position:relative; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; }
+
+  /* ---- BOTTOM PANEL ---- */
+  .bottom-panel {
+    position:fixed; bottom:0; left:0; right:0; z-index:30;
+    background:#16213e; border-top:1px solid #0f3460;
+    transition: transform .3s ease;
+  }
+  .bottom-panel.collapsed .panel-body { display:none; }
+
+  .panel-tabs {
+    display:flex; height:42px; border-bottom:1px solid #0f3460; overflow-x:auto;
+    scrollbar-width:none;
+  }
+  .panel-tabs::-webkit-scrollbar { display:none; }
+  .tab-btn {
+    flex:0 0 auto; padding:0 16px; background:none; border:none; color:#888;
+    font-size:12px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent;
+    white-space:nowrap;
+  }
+  .tab-btn.active { color:#e94560; border-bottom-color:#e94560; }
+
+  .panel-body {
+    max-height: 44vh; overflow-y:auto; padding:10px;
+    scrollbar-width:thin; scrollbar-color:#333 transparent;
+  }
+
+  .panel-handle {
+    width:40px; height:4px; background:#444; border-radius:2px;
+    margin:6px auto; cursor:pointer;
+  }
+
+  /* ---- CATALOG GRID ---- */
+  .catalog-grid {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(80px,1fr)); gap:8px;
+  }
+  .catalog-item {
+    background:#0f3460; border:1px solid #1a3a6e; border-radius:8px;
+    padding:10px 4px; text-align:center; cursor:pointer; user-select:none;
+    transition:all .15s; min-height:64px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+  }
+  .catalog-item:active { background:#e94560; border-color:#e94560; transform:scale(.95); }
+  .catalog-item .icon { font-size:24px; }
+  .catalog-item .name { font-size:10px; color:#ccc; margin-top:2px; }
+
+  /* ---- ROOM CONFIG ---- */
+  .room-config { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .room-config label { font-size:12px; color:#aaa; }
+  .room-config input {
+    width:65px; padding:6px; background:#1a1a2e; border:1px solid #333;
+    border-radius:6px; color:#fff; font-size:13px; text-align:center;
+  }
+
+  /* ---- PROPERTIES ---- */
+  .props-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .prop-field label { display:block; font-size:10px; color:#888; margin-bottom:2px; }
+  .prop-field input {
+    width:100%; padding:6px; background:#1a1a2e; border:1px solid #333;
+    border-radius:6px; color:#fff; font-size:13px; text-align:center;
+  }
+  .prop-actions { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .prop-actions .btn { flex:1; min-width:70px; text-align:center; }
+
+  .color-row { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+  .color-swatch {
+    width:26px; height:26px; border-radius:6px; cursor:pointer;
+    border:2px solid transparent; transition:border .15s;
+  }
+  .color-swatch.active { border-color:#fff; }
+
+  /* ---- TOOLTIP ---- */
+  .tooltip {
+    position:fixed; background:#0f3460ee; color:#fff; padding:4px 10px;
+    border-radius:6px; font-size:11px; pointer-events:none; z-index:100;
+    display:none; white-space:nowrap;
+  }
+
+  /* ---- SELECTED INDICATOR ON CANVAS ---- */
+  .sel-badge {
+    position:fixed; top:50px; left:50%; transform:translateX(-50%);
+    background:#0f3460ee; color:#fff; padding:4px 14px; border-radius:20px;
+    font-size:11px; z-index:15; display:none; pointer-events:none;
+  }
+
+  /* ---- hide panel content on start ---- */
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="top-bar">
+  <span class="title">Room Planner</span>
+  <span class="info" id="infoBar"></span>
+  <button class="btn-icon" onclick="zoomOut()" title="Alejar">-</button>
+  <button class="btn-icon" onclick="zoomIn()" title="Acercar">+</button>
+  <button class="btn-icon" onclick="resetView()" title="Centrar">⊙</button>
+  <button class="btn-icon" id="gridBtn" onclick="toggleGrid()" title="Cuadricula">▦</button>
+  <button class="btn-icon" id="labelsBtn" onclick="toggleLabels()" title="Medidas">📏</button>
+</div>
+
+<!-- CANVAS -->
+<div class="canvas-area" id="canvasArea">
+  <canvas id="canvas"></canvas>
+</div>
+
+<!-- SELECTION BADGE -->
+<div class="sel-badge" id="selBadge"></div>
+
+<!-- BOTTOM PANEL -->
+<div class="bottom-panel" id="bottomPanel">
+  <div class="panel-handle" onclick="togglePanel()"></div>
+  <div class="panel-tabs">
+    <button class="tab-btn active" data-tab="furniture" onclick="switchTab('furniture',this)">Muebles</button>
+    <button class="tab-btn" data-tab="structure" onclick="switchTab('structure',this)">Puertas/Ventanas</button>
+    <button class="tab-btn" data-tab="room" onclick="switchTab('room',this)">Habitacion</button>
+    <button class="tab-btn" data-tab="custom" onclick="switchTab('custom',this)">Personalizado</button>
+    <button class="tab-btn" data-tab="props" onclick="switchTab('props',this)" id="propsTab" style="display:none">Propiedades</button>
+  </div>
+  <div class="panel-body">
+    <!-- FURNITURE -->
+    <div class="tab-content active" id="tab-furniture">
+      <div class="catalog-grid">
+        <div class="catalog-item" ontouchstart="tapAdd(event,'bed_single')" onclick="tapAdd(event,'bed_single')"><div class="icon">🛏️</div><div class="name">Cama Ind.</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'bed_double')" onclick="tapAdd(event,'bed_double')"><div class="icon">🛏️</div><div class="name">Cama Doble</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'sofa')" onclick="tapAdd(event,'sofa')"><div class="icon">🛋️</div><div class="name">Sofa</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'table')" onclick="tapAdd(event,'table')"><div class="icon">🪑</div><div class="name">Mesa</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'desk')" onclick="tapAdd(event,'desk')"><div class="icon">🖥️</div><div class="name">Escritorio</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'wardrobe')" onclick="tapAdd(event,'wardrobe')"><div class="icon">👔</div><div class="name">Armario</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'chair')" onclick="tapAdd(event,'chair')"><div class="icon">💺</div><div class="name">Silla</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'nightstand')" onclick="tapAdd(event,'nightstand')"><div class="icon">🔲</div><div class="name">Mesita</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'bookshelf')" onclick="tapAdd(event,'bookshelf')"><div class="icon">📚</div><div class="name">Estanteria</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'tv')" onclick="tapAdd(event,'tv')"><div class="icon">📺</div><div class="name">TV</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'dining_table')" onclick="tapAdd(event,'dining_table')"><div class="icon">🍽️</div><div class="name">Comedor</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'fridge')" onclick="tapAdd(event,'fridge')"><div class="icon">🧊</div><div class="name">Nevera</div></div>
+      </div>
+    </div>
+
+    <!-- STRUCTURE -->
+    <div class="tab-content" id="tab-structure">
+      <div class="catalog-grid">
+        <div class="catalog-item" ontouchstart="tapAdd(event,'door')" onclick="tapAdd(event,'door')"><div class="icon">🚪</div><div class="name">Puerta</div></div>
+        <div class="catalog-item" ontouchstart="tapAdd(event,'window')" onclick="tapAdd(event,'window')"><div class="icon">🪟</div><div class="name">Ventana</div></div>
+      </div>
+    </div>
+
+    <!-- ROOM CONFIG -->
+    <div class="tab-content" id="tab-room">
+      <div class="room-config">
+        <label>Ancho:</label>
+        <input type="number" id="roomWidth" value="5" min="1" max="30" step="0.1">
+        <span style="font-size:11px;color:#888">m</span>
+        <label>Largo:</label>
+        <input type="number" id="roomHeight" value="4" min="1" max="30" step="0.1">
+        <span style="font-size:11px;color:#888">m</span>
+        <button class="btn btn-primary" onclick="updateRoom()">Aplicar</button>
+      </div>
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="snapBtn" onclick="toggleSnap()">Snap: ON</button>
+      </div>
+    </div>
+
+    <!-- CUSTOM -->
+    <div class="tab-content" id="tab-custom">
+      <div class="room-config">
+        <input type="text" id="customName" placeholder="Nombre" style="width:100px;padding:6px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;">
+        <label>A:</label>
+        <input type="number" id="customW" value="0.8" min="0.1" max="10" step="0.1">
+        <label>L:</label>
+        <input type="number" id="customH" value="0.8" min="0.1" max="10" step="0.1">
+        <span style="font-size:11px;color:#888">m</span>
+        <button class="btn btn-primary" onclick="addCustom()">Agregar</button>
+      </div>
+    </div>
+
+    <!-- PROPERTIES -->
+    <div class="tab-content" id="tab-props">
+      <div id="propTitle" style="font-weight:700;margin-bottom:8px;font-size:14px;"></div>
+      <div class="props-grid">
+        <div class="prop-field"><label>Ancho (m)</label><input type="number" id="propW" min="0.05" max="20" step="0.05" onchange="applyProps()"></div>
+        <div class="prop-field"><label>Largo (m)</label><input type="number" id="propH" min="0.05" max="20" step="0.05" onchange="applyProps()"></div>
+        <div class="prop-field"><label>Pos X (m)</label><input type="number" id="propX" min="-5" max="30" step="0.05" onchange="applyProps()"></div>
+        <div class="prop-field"><label>Pos Y (m)</label><input type="number" id="propY" min="-5" max="30" step="0.05" onchange="applyProps()"></div>
+        <div class="prop-field"><label>Rotacion °</label><input type="number" id="propR" min="0" max="360" step="15" onchange="applyProps()"></div>
+      </div>
+      <div class="color-row" id="colorRow"></div>
+      <div class="prop-actions">
+        <button class="btn btn-secondary" onclick="rotateSelected(-15)">↺ 15°</button>
+        <button class="btn btn-secondary" onclick="rotateSelected(15)">↻ 15°</button>
+        <button class="btn btn-secondary" onclick="duplicateSelected()">Duplicar</button>
+        <button class="btn btn-danger" onclick="deleteSelected()">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ===== DATA =====
+const DEFS = {
+  door:         { name:'Puerta',      w:0.9, h:0.1, color:'#8B4513', struct:true },
+  window:       { name:'Ventana',     w:1.2, h:0.1, color:'#87CEEB', struct:true },
+  bed_single:   { name:'Cama Ind.',   w:0.9, h:1.9, color:'#6B8E9B' },
+  bed_double:   { name:'Cama Doble',  w:1.5, h:2.0, color:'#5B7E8B' },
+  sofa:         { name:'Sofa',        w:2.0, h:0.85,color:'#8B6F5E' },
+  table:        { name:'Mesa',        w:1.2, h:0.8, color:'#A0855B' },
+  desk:         { name:'Escritorio',  w:1.2, h:0.6, color:'#7A6B5B' },
+  wardrobe:     { name:'Armario',     w:1.2, h:0.6, color:'#6B5B4B' },
+  chair:        { name:'Silla',       w:0.45,h:0.45,color:'#9B8B7B' },
+  nightstand:   { name:'Mesita',      w:0.45,h:0.4, color:'#7B6B5B' },
+  bookshelf:    { name:'Estanteria',  w:0.8, h:0.35,color:'#8B7B6B' },
+  tv:           { name:'TV',          w:1.2, h:0.1, color:'#2C2C2C' },
+  dining_table: { name:'Comedor',     w:1.6, h:0.9, color:'#A08050' },
+  fridge:       { name:'Nevera',      w:0.6, h:0.65,color:'#C0C0C0' },
+};
+const COLORS = ['#6B8E9B','#5B7E8B','#8B6F5E','#A0855B','#7A6B5B','#6B5B4B','#9B8B7B',
+  '#8B4513','#87CEEB','#2C2C2C','#C0C0C0','#e94560','#4CAF50','#FF9800','#9C27B0','#fff'];
+
+let items = [];
+let selectedId = null;
+let roomW = 5, roomH = 4;
+let zoom = 1, panX = 0, panY = 0;
+let showGrid = true, snapOn = true, showLabels = true;
+const SNAP = 0.05;
+
+// Canvas
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const area = document.getElementById('canvasArea');
+let cW, cH;
+
+// Interaction
+let drag = null; // {id, ox, oy}
+let pinch = null; // {d0, zoom0, cx, cy}
+let pan = null;  // {sx, sy, px0, py0}
+let tapHandled = false;
+
+function uid() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function ppm() { return 80*zoom; }
+function s(v) { return snapOn ? Math.round(v/SNAP)*SNAP : v; }
+
+function w2s(wx,wy) {
+  return { x: cW/2+(wx-roomW/2)*ppm()+panX, y: cH/2+(wy-roomH/2)*ppm()+panY };
+}
+function s2w(sx,sy) {
+  return { x:(sx-cW/2-panX)/ppm()+roomW/2, y:(sy-cH/2-panY)/ppm()+roomH/2 };
+}
+
+function hitTest(wx,wy) {
+  for(let i=items.length-1;i>=0;i--) {
+    const it=items[i], rad=-(it.rot||0)*Math.PI/180;
+    const c=Math.cos(rad), sn=Math.sin(rad);
+    const dx=wx-it.x, dy=wy-it.y;
+    if(Math.abs(dx*c-dy*sn)<=it.w/2 && Math.abs(dx*sn+dy*c)<=it.h/2) return it;
+  }
+  return null;
+}
+
+// ===== DRAW =====
+function resize() {
+  const dpr = window.devicePixelRatio||1;
+  cW = area.clientWidth; cH = area.clientHeight;
+  canvas.width = cW*dpr; canvas.height = cH*dpr;
+  canvas.style.width = cW+'px'; canvas.style.height = cH+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+
+function draw() {
+  ctx.clearRect(0,0,cW,cH);
+  const p = ppm();
+  const tl = w2s(0,0), br = w2s(roomW,roomH);
+  const rw = br.x-tl.x, rh = br.y-tl.y;
+
+  // Grid
+  if(showGrid) {
+    ctx.strokeStyle='#ffffff0a'; ctx.lineWidth=1;
+    const gs = zoom>=0.5?0.5:1;
+    for(let x=0;x<=roomW;x+=gs){ const a=w2s(x,0),b=w2s(x,roomH); ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke(); }
+    for(let y=0;y<=roomH;y+=gs){ const a=w2s(0,y),b=w2s(roomW,y); ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke(); }
+  }
+
+  // Room
+  ctx.fillStyle='#1e2a3a'; ctx.fillRect(tl.x,tl.y,rw,rh);
+  ctx.strokeStyle='#e0e0e0'; ctx.lineWidth=3; ctx.strokeRect(tl.x,tl.y,rw,rh);
+
+  // Room dims
+  if(showLabels){
+    ctx.fillStyle='#aaa'; ctx.font='12px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText(roomW.toFixed(1)+' m', tl.x+rw/2, tl.y-10);
+    ctx.save(); ctx.translate(tl.x-12, tl.y+rh/2); ctx.rotate(-Math.PI/2);
+    ctx.fillText(roomH.toFixed(1)+' m',0,0); ctx.restore();
+  }
+
+  // Items
+  items.forEach(it => drawItem(it, it.id===selectedId));
+  updateInfo();
+}
+
+function drawItem(it, sel) {
+  const p=ppm(), sc=w2s(it.x,it.y), pw=it.w*p, ph=it.h*p, rad=(it.rot||0)*Math.PI/180;
+  ctx.save(); ctx.translate(sc.x,sc.y); ctx.rotate(rad);
+
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(-pw/2+2,-ph/2+2,pw,ph);
+  // Body
+  ctx.fillStyle=it.color; ctx.fillRect(-pw/2,-ph/2,pw,ph);
+
+  // Door arc
+  if(it.type==='door'){ ctx.strokeStyle='#8B4513'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(-pw/2,-ph/2,it.w*p,0,Math.PI/2); ctx.stroke(); }
+  // Window line
+  if(it.type==='window'){ ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,-ph/2); ctx.lineTo(0,ph/2); ctx.stroke(); }
+
+  // Outline
+  ctx.strokeStyle=sel?'#e94560':'rgba(255,255,255,.15)';
+  ctx.lineWidth=sel?2.5:1;
+  ctx.strokeRect(-pw/2,-ph/2,pw,ph);
+
+  // Label
+  const fs=Math.max(8,Math.min(13,pw*.18));
+  if(pw>28&&ph>16){
+    ctx.fillStyle='#fff'; ctx.font=`bold ${fs}px Segoe UI`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(it.name,0, showLabels?-fs*.45:0);
+    if(showLabels){ ctx.font=`${Math.max(7,fs-2)}px Segoe UI`; ctx.fillStyle='#ccc'; ctx.fillText(it.w.toFixed(2)+'x'+it.h.toFixed(2)+'m',0,fs*.55); }
+  }
+
+  // Rotation handle
+  if(sel){
+    ctx.fillStyle='#e94560'; ctx.beginPath(); ctx.arc(0,-ph/2-14,6,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#e94560'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(0,-ph/2); ctx.lineTo(0,-ph/2-8); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ===== INTERACTION =====
+function getXY(e) {
+  const r=canvas.getBoundingClientRect();
+  const t=e.touches?e.touches[0]:e;
+  return {x:t.clientX-r.left, y:t.clientY-r.top};
+}
+
+function isRotHandle(sx,sy,it) {
+  if(!it) return false;
+  const p=ppm(), sc=w2s(it.x,it.y), ph=it.h*p, rad=(it.rot||0)*Math.PI/180;
+  const hx=sc.x-Math.sin(rad)*(ph/2+14), hy=sc.y-Math.cos(rad)*(ph/2+14);
+  return (sx-hx)**2+(sy-hy)**2 < 400;
+}
+
+// --- MOUSE ---
+canvas.addEventListener('mousedown', e => { onDown(e, getXY(e)); });
+canvas.addEventListener('mousemove', e => { onMove(e, getXY(e)); });
+canvas.addEventListener('mouseup', e => { onUp(); });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = e.deltaY>0?0.9:1.1;
+  const nz = Math.max(.15,Math.min(6,zoom*f));
+  const pt=getXY(e);
+  panX = pt.x-(pt.x-panX)*(nz/zoom);
+  panY = pt.y-(pt.y-panY)*(nz/zoom);
+  zoom=nz; draw();
+},{passive:false});
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+
+// --- TOUCH ---
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if(e.touches.length===2) {
+    const t=e.touches;
+    const d=Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+    pinch={d0:d, zoom0:zoom, cx:(t[0].clientX+t[1].clientX)/2, cy:(t[0].clientY+t[1].clientY)/2};
+    drag=null; pan=null;
+    return;
+  }
+  const pt=getXY(e);
+  onDown(e,pt);
+},{passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if(pinch && e.touches.length===2) {
+    const t=e.touches;
+    const d=Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+    const nz=Math.max(.15,Math.min(6,pinch.zoom0*(d/pinch.d0)));
+    const r=canvas.getBoundingClientRect();
+    const cx=pinch.cx-r.left, cy=pinch.cy-r.top;
+    panX=cx-(cx-panX)*(nz/zoom);
+    panY=cy-(cy-panY)*(nz/zoom);
+    zoom=nz; draw();
+    return;
+  }
+  if(e.touches.length===1) onMove(e, getXY(e));
+},{passive:false});
+
+canvas.addEventListener('touchend', e => { e.preventDefault(); pinch=null; onUp(); },{passive:false});
+
+// --- UNIFIED ---
+let rotatingItem = null;
+
+function onDown(e, pt) {
+  const w = s2w(pt.x,pt.y);
+  tapHandled = false;
+
+  // Rotation handle
+  if(selectedId) {
+    const sel=items.find(i=>i.id===selectedId);
+    if(sel && isRotHandle(pt.x,pt.y,sel)) { rotatingItem=sel; return; }
+  }
+
+  const hit = hitTest(w.x,w.y);
+  if(hit) {
+    selectItem(hit.id);
+    const idx=items.indexOf(hit); items.splice(idx,1); items.push(hit);
+    drag={id:hit.id, ox:w.x-hit.x, oy:w.y-hit.y};
+    tapHandled=true;
+    return;
+  }
+  selectItem(null);
+  pan={sx:pt.x, sy:pt.y, px0:panX, py0:panY};
+}
+
+function onMove(e, pt) {
+  if(rotatingItem) {
+    const sc=w2s(rotatingItem.x,rotatingItem.y);
+    let a=Math.atan2(pt.x-sc.x,-(pt.y-sc.y))*180/Math.PI;
+    if(snapOn) a=Math.round(a/15)*15;
+    rotatingItem.rot=((a%360)+360)%360;
+    refreshProps(); draw();
+    return;
+  }
+  if(drag) {
+    const w=s2w(pt.x,pt.y);
+    const it=items.find(i=>i.id===drag.id);
+    if(it){ it.x=s(w.x-drag.ox); it.y=s(w.y-drag.oy); refreshProps(); draw(); }
+    return;
+  }
+  if(pan) {
+    panX=pan.px0+(pt.x-pan.sx);
+    panY=pan.py0+(pt.y-pan.sy);
+    draw();
+  }
+}
+
+function onUp() { drag=null; pan=null; rotatingItem=null; }
+
+// ===== TAP TO ADD =====
+function tapAdd(e, type) {
+  e.preventDefault(); e.stopPropagation();
+  const def=DEFS[type]; if(!def) return;
+  const it = {
+    id:uid(), type, name:def.name,
+    x:s(roomW/2), y:s(roomH/2),
+    w:def.w, h:def.h, color:def.color, rot:0
+  };
+  items.push(it);
+  selectItem(it.id);
+  draw();
+}
+
+// ===== SELECT / PROPS =====
+function selectItem(id) {
+  selectedId=id;
+  const badge=document.getElementById('selBadge');
+  const tab=document.getElementById('propsTab');
+  if(id) {
+    const it=items.find(i=>i.id===id);
+    badge.style.display='block';
+    badge.textContent=it?`${it.name} — ${it.w.toFixed(2)}x${it.h.toFixed(2)}m`:'';
+    tab.style.display='';
+    switchTab('props', tab);
+    refreshProps();
+  } else {
+    badge.style.display='none';
+    tab.style.display='none';
+    if(document.querySelector('.tab-btn.active[data-tab="props"]'))
+      switchTab('furniture', document.querySelector('.tab-btn[data-tab="furniture"]'));
+  }
+  draw();
+}
+
+function refreshProps() {
+  const it=items.find(i=>i.id===selectedId); if(!it) return;
+  document.getElementById('propTitle').textContent=it.name;
+  document.getElementById('propW').value=it.w.toFixed(2);
+  document.getElementById('propH').value=it.h.toFixed(2);
+  document.getElementById('propX').value=it.x.toFixed(2);
+  document.getElementById('propY').value=it.y.toFixed(2);
+  document.getElementById('propR').value=Math.round(it.rot||0);
+  document.getElementById('selBadge').textContent=`${it.name} — ${it.w.toFixed(2)}x${it.h.toFixed(2)}m`;
+
+  const cr=document.getElementById('colorRow'); cr.innerHTML='';
+  COLORS.forEach(c=>{
+    const d=document.createElement('div');
+    d.className='color-swatch'+(c===it.color?' active':'');
+    d.style.background=c;
+    d.onclick=()=>{ it.color=c; refreshProps(); draw(); };
+    cr.appendChild(d);
+  });
+}
+
+function applyProps() {
+  const it=items.find(i=>i.id===selectedId); if(!it) return;
+  it.w=Math.max(0.05,parseFloat(document.getElementById('propW').value)||it.w);
+  it.h=Math.max(0.05,parseFloat(document.getElementById('propH').value)||it.h);
+  it.x=parseFloat(document.getElementById('propX').value)??it.x;
+  it.y=parseFloat(document.getElementById('propY').value)??it.y;
+  it.rot=parseFloat(document.getElementById('propR').value)||0;
+  refreshProps(); draw();
+}
+
+function rotateSelected(deg) {
+  const it=items.find(i=>i.id===selectedId); if(!it) return;
+  it.rot=(((it.rot||0)+deg)%360+360)%360;
+  refreshProps(); draw();
+}
+function duplicateSelected() {
+  const it=items.find(i=>i.id===selectedId); if(!it) return;
+  const d={...it, id:uid(), x:it.x+.3, y:it.y+.3};
+  items.push(d); selectItem(d.id); draw();
+}
+function deleteSelected() {
+  if(!selectedId) return;
+  items=items.filter(i=>i.id!==selectedId);
+  selectItem(null); draw();
+}
+
+// ===== CUSTOM =====
+function addCustom() {
+  const name=document.getElementById('customName').value||'Custom';
+  const w=parseFloat(document.getElementById('customW').value)||.8;
+  const h=parseFloat(document.getElementById('customH').value)||.8;
+  items.push({id:uid(),type:'custom',name,x:s(roomW/2),y:s(roomH/2),w,h,color:'#8B6F5E',rot:0});
+  selectItem(items[items.length-1].id); draw();
+}
+
+// ===== ROOM / VIEW =====
+function updateRoom() {
+  roomW=parseFloat(document.getElementById('roomWidth').value)||5;
+  roomH=parseFloat(document.getElementById('roomHeight').value)||4;
+  resetView();
+}
+function zoomIn(){ zoom=Math.min(6,zoom*1.25); draw(); }
+function zoomOut(){ zoom=Math.max(.15,zoom/1.25); draw(); }
+function resetView(){ zoom=1; panX=0; panY=0; draw(); }
+function toggleGrid(){ showGrid=!showGrid; document.getElementById('gridBtn').classList.toggle('active',showGrid); draw(); }
+function toggleLabels(){ showLabels=!showLabels; document.getElementById('labelsBtn').classList.toggle('active',showLabels); draw(); }
+function toggleSnap(){ snapOn=!snapOn; document.getElementById('snapBtn').textContent='Snap: '+(snapOn?'ON':'OFF'); }
+
+function updateInfo() {
+  document.getElementById('infoBar').textContent=`${Math.round(zoom*100)}% · ${roomW.toFixed(1)}x${roomH.toFixed(1)}m · ${items.length} obj`;
+}
+
+// ===== TABS =====
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  const el=document.getElementById('tab-'+name);
+  if(el) el.classList.add('active');
+  document.getElementById('bottomPanel').classList.remove('collapsed');
+}
+function togglePanel() {
+  document.getElementById('bottomPanel').classList.toggle('collapsed');
+}
+
+// ===== KEYBOARD =====
+document.addEventListener('keydown', e => {
+  if(e.target.tagName==='INPUT') return;
+  if(e.key==='Delete'||e.key==='Backspace') deleteSelected();
+  else if(e.key==='r') rotateSelected(15);
+  else if(e.key==='R') rotateSelected(-15);
+  else if(e.key==='d'&&e.ctrlKey){ e.preventDefault(); duplicateSelected(); }
+  else if(e.key==='Escape') selectItem(null);
+});
+
+// ===== INIT =====
+window.addEventListener('resize', resize);
+document.getElementById('gridBtn').classList.add('active');
+document.getElementById('labelsBtn').classList.add('active');
+resize();
+</script>
+</body>
+</html>
