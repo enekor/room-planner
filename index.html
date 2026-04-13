@@ -106,6 +106,16 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Mis Cuartos</div>
+    <input type="text" id="roomName" placeholder="Nombre del cuarto" onchange="renameCurrentRoom()" style="width:100%;padding:5px 6px;background:#1a1a2e;border:1px solid #333;border-radius:5px;color:#fff;font-size:12px;margin-bottom:6px">
+    <select id="roomSelect" onchange="loadRoom(this.value)" style="width:100%;padding:5px 6px;background:#1a1a2e;border:1px solid #333;border-radius:5px;color:#fff;font-size:12px;margin-bottom:6px"></select>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="newRoom()" style="flex:1">+ Nuevo</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteCurrentRoom()" style="flex:1">Eliminar</button>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Habitacion</div>
     <div class="row">
       <label>Ancho:</label>
@@ -225,6 +235,120 @@ let roomW = 5, roomD = 4, wallH = 2.5;
 let showWalls = true;
 let mode = '3d';
 let placingType = null;
+let currentRoomId = null;
+let suppressSave = false;
+
+// ===== PERSISTENCE =====
+const STORAGE_KEY = 'roomPlanner.v1';
+
+function loadStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { rooms: {}, currentId: null };
+    return JSON.parse(raw);
+  } catch(e) { return { rooms: {}, currentId: null }; }
+}
+
+function saveStorage(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function save() {
+  if (suppressSave || !currentRoomId) return;
+  const data = loadStorage();
+  const existing = data.rooms[currentRoomId] || {};
+  data.rooms[currentRoomId] = {
+    id: currentRoomId,
+    name: existing.name || 'Cuarto',
+    roomW, roomD, wallH,
+    items: items.map(i => ({...i})),
+    updatedAt: Date.now()
+  };
+  data.currentId = currentRoomId;
+  saveStorage(data);
+}
+
+function newRoomId() { return 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
+
+window.newRoom = function() {
+  const id = newRoomId();
+  currentRoomId = id;
+  items = [];
+  roomW = 5; roomD = 4; wallH = 2.5;
+  document.getElementById('roomWidth').value = roomW;
+  document.getElementById('roomHeight').value = roomD;
+  document.getElementById('wallHeight').value = wallH;
+  const data = loadStorage();
+  const count = Object.keys(data.rooms).length + 1;
+  const name = 'Cuarto ' + count;
+  document.getElementById('roomName').value = name;
+  data.rooms[id] = { id, name, roomW, roomD, wallH, items: [], updatedAt: Date.now() };
+  data.currentId = id;
+  saveStorage(data);
+  rebuildAll();
+  refreshRoomList();
+};
+
+window.loadRoom = function(id) {
+  const data = loadStorage();
+  const r = data.rooms[id]; if (!r) return;
+  suppressSave = true;
+  currentRoomId = id;
+  roomW = r.roomW; roomD = r.roomD; wallH = r.wallH;
+  items = (r.items || []).map(i => ({...i}));
+  document.getElementById('roomWidth').value = roomW;
+  document.getElementById('roomHeight').value = roomD;
+  document.getElementById('wallHeight').value = wallH;
+  document.getElementById('roomName').value = r.name || 'Cuarto';
+  data.currentId = id; saveStorage(data);
+  selectedId = null;
+  document.getElementById('propsPanel').classList.remove('active');
+  rebuildAll();
+  refreshRoomList();
+  suppressSave = false;
+};
+
+window.renameCurrentRoom = function() {
+  if (!currentRoomId) return;
+  const data = loadStorage();
+  if (!data.rooms[currentRoomId]) return;
+  data.rooms[currentRoomId].name = document.getElementById('roomName').value || 'Cuarto';
+  saveStorage(data);
+  refreshRoomList();
+};
+
+window.deleteCurrentRoom = function() {
+  if (!currentRoomId) return;
+  if (!confirm('¿Eliminar este cuarto?')) return;
+  const data = loadStorage();
+  delete data.rooms[currentRoomId];
+  saveStorage(data);
+  const remaining = Object.keys(data.rooms);
+  if (remaining.length > 0) loadRoom(remaining[0]);
+  else newRoom();
+};
+
+function refreshRoomList() {
+  const sel = document.getElementById('roomSelect');
+  const data = loadStorage();
+  sel.innerHTML = '';
+  const rooms = Object.values(data.rooms).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  rooms.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id; opt.textContent = r.name || 'Cuarto';
+    if (r.id === currentRoomId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function rebuildAll() {
+  buildRoom();
+  furnitureGroup.clear();
+  items.forEach(it => furnitureGroup.add(buildFurniture3D(it)));
+  if (selectionBox) { scene.remove(selectionBox); selectionBox = null; }
+  controls.target.set(roomW/2, 0, roomD/2);
+  if (mode === '2d') draw2d();
+}
 
 // ===== THREE.JS SETUP =====
 const container = document.getElementById('renderContainer');
@@ -702,6 +826,7 @@ function rebuildItem(item) {
   if (old) furnitureGroup.remove(old);
   const mesh = buildFurniture3D(item);
   furnitureGroup.add(mesh);
+  save();
 }
 
 // ===== INTERACTION =====
@@ -804,6 +929,7 @@ function onPointerUp() {
   if (draggingItem) {
     controls.enabled = true;
     draggingItem = null;
+    save();
   }
 }
 
@@ -882,6 +1008,7 @@ renderer.domElement.addEventListener('touchend', e => {
     controls.enabled = true;
     draggingItem = null;
     touchDragActive = false;
+    save();
     return;
   }
 
@@ -1039,6 +1166,7 @@ window.delSel = function() {
   if (mesh) furnitureGroup.remove(mesh);
   items = items.filter(i => i.id !== selectedId);
   selectItem(null);
+  save();
   if (mode === '2d') draw2d();
 };
 
@@ -1059,6 +1187,8 @@ window.updateRoom = function() {
   buildRoom();
   controls.target.set(roomW / 2, 0, roomD / 2);
   resetCamera();
+  save();
+  if (mode === '2d') draw2d();
 };
 
 window.resetCamera = function() {
@@ -1387,7 +1517,11 @@ function on2dMove(e, pt) {
   }
 }
 
-function on2dUp() { drag2 = null; panState2 = null; rot2 = null; }
+function on2dUp() {
+  const wasDragging = drag2 || rot2;
+  drag2 = null; panState2 = null; rot2 = null;
+  if (wasDragging) save();
+}
 
 // Mouse on 2d canvas
 c2d.addEventListener('mousedown', e => { on2dDown(e, c2dXY(e)); });
@@ -1455,7 +1589,36 @@ function animate() {
 }
 
 // ===== INIT =====
+(function initPersistence() {
+  const data = loadStorage();
+  const rooms = Object.values(data.rooms);
+  if (rooms.length === 0 || !data.currentId || !data.rooms[data.currentId]) {
+    // Create first room
+    const id = newRoomId();
+    currentRoomId = id;
+    const name = 'Cuarto 1';
+    document.getElementById('roomName').value = name;
+    const newData = loadStorage();
+    newData.rooms[id] = { id, name, roomW, roomD, wallH, items: [], updatedAt: Date.now() };
+    newData.currentId = id;
+    saveStorage(newData);
+  } else {
+    suppressSave = true;
+    const r = data.rooms[data.currentId];
+    currentRoomId = r.id;
+    roomW = r.roomW; roomD = r.roomD; wallH = r.wallH;
+    items = (r.items || []).map(i => ({...i}));
+    document.getElementById('roomWidth').value = roomW;
+    document.getElementById('roomHeight').value = roomD;
+    document.getElementById('wallHeight').value = wallH;
+    document.getElementById('roomName').value = r.name || 'Cuarto';
+    suppressSave = false;
+  }
+  refreshRoomList();
+})();
+
 buildRoom();
+items.forEach(it => furnitureGroup.add(buildFurniture3D(it)));
 onResize();
 resetCamera();
 animate();
