@@ -195,6 +195,12 @@
     <div class="prop-row"><label>Largo (m):</label><input type="number" id="propD" min="0.05" max="20" step="0.05" onchange="applyProps()"></div>
     <div class="prop-row"><label>Alto (m):</label><input type="number" id="propH" min="0.05" max="5" step="0.05" onchange="applyProps()"></div>
     <div class="prop-row"><label>Rotacion °:</label><input type="number" id="propR" min="0" max="360" step="15" onchange="applyProps()"></div>
+    <div class="prop-row"><label>Precio (€):</label><input type="number" id="propPrice" min="0" step="1" onchange="applyProps()"></div>
+    <div class="prop-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+      <label>Link:</label>
+      <input type="text" id="propLink" placeholder="https://..." style="width:100%;padding:5px 6px;background:#1a1a2e;border:1px solid #333;border-radius:5px;color:#fff;font-size:12px;" onchange="applyProps()">
+      <a id="propLinkView" href="#" target="_blank" rel="noopener" style="font-size:11px;color:#8ab4f8;display:none;">Ver enlace</a>
+    </div>
     <div class="color-options" id="colorOpts"></div>
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="rotSel(-15)">↺ 15°</button>
@@ -240,12 +246,12 @@ const DEFS = {
   bookshelf:   {name:'Estanteria',  w:.8, d:.35,h:1.8, color:'#8B7B6B'},
   tv:          {name:'TV',          w:1.2,d:.08,h:.7,  color:'#2C2C2C'},
   dining_table:{name:'Mesa Comedor',w:1.6,d:.9, h:.75, color:'#A08050'},
-  fridge:      {name:'Nevera',      w:.6, d:.65,h:1.7, color:'#C0C0C0'},
-  cabinet_base:{name:'Armario Base',w:1.2,d:.6, h:.9, color:'#c2b280'},
-  cabinet_wall:{name:'Mueble Alto', w:1.0,d:.35,h:.7, color:'#d6c8b3'},
-  drawer_unit: {name:'Cajonera',    w:.6, d:.6, h:.9, color:'#a48a5f'},
-  kitchen_sink:{name:'Fregadero',   w:1.0, d:.6, h:.9, color:'#a0a0a0'},
-  stove:       {name:'Cocina',      w:.9, d:.6, h:.9, color:'#333333'},
+  fridge:      {name:'Nevera',      w:.6, d:.65,h:1.7, color:'#C0C0C0', price: 550},
+  cabinet_base:{name:'Armario Base',w:1.2,d:.6, h:.9, color:'#c2b280', price: 250},
+  cabinet_wall:{name:'Mueble Alto', w:1.0,d:.35,h:.7, color:'#d6c8b3', price: 180},
+  drawer_unit: {name:'Cajonera',    w:.6, d:.6, h:.9, color:'#a48a5f', price: 220},
+  kitchen_sink:{name:'Fregadero',   w:1.0, d:.6, h:.9, color:'#a0a0a0', price: 300},
+  stove:       {name:'Cocina',      w:.9, d:.6, h:.9, color:'#333333', price: 450},
   // Estructuras añadidas de manera dinámica
   custom_mueble:{name:'Mueble Pers.',w:.8,  d:.8,  h:.8,  color:'#FF9800'},
   custom_pared: {name:'Pared Interna',w:2.0, d:.12, h:2.5, color:'#d4cfc4'},
@@ -1047,7 +1053,9 @@ function onPointerDown(e) {
         id: uid(), type: placingType, name: def.name,
         x: snap(pt.x), z: snap(pt.z),
         w: def.w, d: def.d, h: def.h,
-        color: def.color, rot: 0, yOff: def.yOff || 0
+        color: def.color, rot: 0, yOff: def.yOff || 0,
+        price: def.price || 0,
+        link: def.link || ''
       };
       items.push(item);
       rebuildItem(item);
@@ -1347,6 +1355,18 @@ function refreshProps() {
   document.getElementById('propD').value = it.d.toFixed(2);
   document.getElementById('propH').value = it.h.toFixed(2);
   document.getElementById('propR').value = Math.round(it.rot || 0);
+  document.getElementById('propPrice').value = (it.price || 0).toFixed(2);
+  document.getElementById('propLink').value = it.link || '';
+  const linkView = document.getElementById('propLinkView');
+  if (it.link) {
+    linkView.style.display = 'inline-block';
+    linkView.href = it.link;
+    linkView.textContent = 'Ver enlace';
+  } else {
+    linkView.style.display = 'none';
+    linkView.href = '#';
+    linkView.textContent = '';
+  }
   const co = document.getElementById('colorOpts'); co.innerHTML = '';
   COLORS.forEach(c => {
     const d = document.createElement('div');
@@ -1363,6 +1383,8 @@ window.applyProps = function() {
   it.d = Math.max(0.05, parseFloat(document.getElementById('propD').value) || it.d);
   it.h = Math.max(0.05, parseFloat(document.getElementById('propH').value) || it.h);
   it.rot = parseFloat(document.getElementById('propR').value) || 0;
+  it.price = Math.max(0, parseFloat(document.getElementById('propPrice').value) || 0);
+  it.link = document.getElementById('propLink').value.trim();
   rebuildItem(it);
   updateSelectionHighlight();
   if (mode === '2d') draw2d();
@@ -1416,7 +1438,9 @@ window.addCustom = function() {
     x: roomW / 2,
     z: roomD / 2,
     yOff: yOffsetCalculated,
-    rot: 0
+    rot: 0,
+    price: 0,
+    link: ''
   };
 
   items.push(item);
@@ -1764,7 +1788,9 @@ function on2dDown(e, pt) {
     const finalPos = magnetizePosition(tempItem, w.x, w.y);
     const it = { id: tempItem.id, type: placingType, name: def.name,
       x: finalPos.x, z: finalPos.z, w: def.w, d: def.d, h: def.h,
-      color: def.color, rot: 0, yOff: tempItem.yOff };
+      color: def.color, rot: 0, yOff: tempItem.yOff,
+      price: def.price || 0,
+      link: def.link || '' };
     items.push(it); rebuildItem(it); selectItem(it.id);
     placingType = null; clearCatalogHighlight(); updateHint();
     draw2d(); return;
@@ -1863,7 +1889,8 @@ window.addEventListener('resize', onResize);
 
 // ===== INFO =====
 function updateInfo() {
-  document.getElementById('infoBar').textContent = `${roomW.toFixed(1)}×${roomD.toFixed(1)}×${wallH.toFixed(1)}m | ${items.length} obj`;
+  const totalPrice = items.reduce((sum, it) => sum + (parseFloat(it.price) || 0), 0);
+  document.getElementById('infoBar').textContent = `${roomW.toFixed(1)}×${roomD.toFixed(1)}×${wallH.toFixed(1)}m | ${items.length} obj | Total: €${totalPrice.toFixed(2)}`;
 }
 
 // ===== ANIMATION LOOP =====
