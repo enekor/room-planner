@@ -1019,8 +1019,11 @@ function onPointerMove(e) {
   if (!draggingItem) return;
   const pt = getFloorPoint(e);
   if (pt) {
-    draggingItem.x = snap(pt.x - dragOffset.x);
-    draggingItem.z = snap(pt.z - dragOffset.z);
+    const targetX = pt.x - dragOffset.x;
+    const targetZ = pt.z - dragOffset.z;
+    const newPos = magnetizePosition(draggingItem, targetX, targetZ);
+    draggingItem.x = newPos.x;
+    draggingItem.z = newPos.z;
     const mesh = furnitureGroup.children.find(c => c.userData.itemId === draggingItem.id);
     if (mesh) {
       mesh.position.x = draggingItem.x;
@@ -1130,11 +1133,13 @@ renderer.domElement.addEventListener('touchend', e => {
       const pt = getFloorPoint(fakeEvent);
       if (pt) {
         const def = DEFS[placingType];
+        const tempItem = { ...def, id: uid(), type: placingType, rot: 0, yOff: def.yOff || 0 };
+        const finalPos = magnetizePosition(tempItem, pt.x, pt.z);
         const item = {
-          id: uid(), type: placingType, name: def.name,
-          x: snap(pt.x), z: snap(pt.z),
+          id: tempItem.id, type: placingType, name: def.name,
+          x: finalPos.x, z: finalPos.z,
           w: def.w, d: def.d, h: def.h,
-          color: def.color, rot: 0, yOff: def.yOff || 0
+          color: def.color, rot: 0, yOff: tempItem.yOff
         };
         items.push(item); rebuildItem(item); selectItem(item.id);
         placingType = null; clearCatalogHighlight(); updateHint();
@@ -1178,8 +1183,55 @@ function updateSelectionHighlight() {
 }
 
 // ===== HELPERS =====
+const DRAG_GRID = 0.02; // 2cm snapping while arrastrando
+const MAGNET_RANGE = 0.18; // 18cm de imán para alinearse a paredes
+
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-function snap(v) { return Math.round(v / 0.05) * 0.05; }
+function snap(v) { return Math.round(v / DRAG_GRID) * DRAG_GRID; }
+
+function getOrientedHalfExtents(item) {
+  const angle = (item.rot || 0) * Math.PI / 180;
+  const cos = Math.abs(Math.cos(angle));
+  const sin = Math.abs(Math.sin(angle));
+  return {
+    halfX: Math.abs(item.w * 0.5 * cos) + Math.abs(item.d * 0.5 * sin),
+    halfZ: Math.abs(item.w * 0.5 * sin) + Math.abs(item.d * 0.5 * cos)
+  };
+}
+
+function magnetizePosition(item, targetX, targetZ) {
+  const { halfX, halfZ } = getOrientedHalfExtents(item);
+  let x = targetX;
+  let z = targetZ;
+
+  const left = x - halfX;
+  const right = x + halfX;
+  const back = z - halfZ;
+  const front = z + halfZ;
+
+  if (Math.abs(left) < MAGNET_RANGE) x = halfX;
+  if (Math.abs(right - roomW) < MAGNET_RANGE) x = roomW - halfX;
+  if (Math.abs(back) < MAGNET_RANGE) z = halfZ;
+  if (Math.abs(front - roomD) < MAGNET_RANGE) z = roomD - halfZ;
+
+  // Snap to other pared objects if están cerca
+  items.forEach(other => {
+    if (!other.id || other.id === item.id) return;
+    if (other.type !== 'custom_pared' && item.type !== 'custom_pared') return;
+    const otherExt = getOrientedHalfExtents(other);
+    const otherLeft = other.x - otherExt.halfX;
+    const otherRight = other.x + otherExt.halfX;
+    const otherBack = other.z - otherExt.halfZ;
+    const otherFront = other.z + otherExt.halfZ;
+
+    if (Math.abs(left - otherRight) < MAGNET_RANGE && Math.abs(z - other.z) < MAGNET_RANGE) x = otherRight + halfX;
+    if (Math.abs(right - otherLeft) < MAGNET_RANGE && Math.abs(z - other.z) < MAGNET_RANGE) x = otherLeft - halfX;
+    if (Math.abs(back - otherFront) < MAGNET_RANGE && Math.abs(x - other.x) < MAGNET_RANGE) z = otherFront + halfZ;
+    if (Math.abs(front - otherBack) < MAGNET_RANGE && Math.abs(x - other.x) < MAGNET_RANGE) z = otherBack - halfZ;
+  });
+
+  return { x: snap(Math.min(Math.max(x, halfX), roomW - halfX)), z: snap(Math.min(Math.max(z, halfZ), roomD - halfZ)) };
+}
 
 // ===== CATALOG =====
 window.selectCatalog = function(type) {
@@ -1605,9 +1657,11 @@ function on2dDown(e, pt) {
   // Place from catalog
   if (placingType) {
     const def = DEFS[placingType];
-    const it = { id: uid(), type: placingType, name: def.name,
-      x: snap(w.x), z: snap(w.y), w: def.w, d: def.d, h: def.h,
-      color: def.color, rot: 0, yOff: def.yOff||0 };
+    const tempItem = { ...def, id: uid(), type: placingType, rot: 0, yOff: def.yOff || 0 };
+    const finalPos = magnetizePosition(tempItem, w.x, w.y);
+    const it = { id: tempItem.id, type: placingType, name: def.name,
+      x: finalPos.x, z: finalPos.z, w: def.w, d: def.d, h: def.h,
+      color: def.color, rot: 0, yOff: tempItem.yOff };
     items.push(it); rebuildItem(it); selectItem(it.id);
     placingType = null; clearCatalogHighlight(); updateHint();
     draw2d(); return;
@@ -1629,7 +1683,10 @@ function on2dMove(e, pt) {
   if (drag2) {
     const w = s2w2(pt.x, pt.y), it = items.find(i => i.id === drag2.id);
     if (it) {
-      it.x = snap(w.x - drag2.ox); it.z = snap(w.y - drag2.oy);
+      const targetX = w.x - drag2.ox;
+      const targetZ = w.y - drag2.oy;
+      const finalPos = magnetizePosition(it, targetX, targetZ);
+      it.x = finalPos.x; it.z = finalPos.z;
       const mesh = furnitureGroup.children.find(c2 => c2.userData.itemId === it.id);
       if (mesh) { mesh.position.x = it.x; mesh.position.z = it.z; }
       updateSelectionHighlight(); refreshProps(); draw2d();
