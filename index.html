@@ -113,6 +113,11 @@
       <button class="btn btn-primary btn-sm" onclick="newRoom()" style="flex:1">+ Nuevo</button>
       <button class="btn btn-danger btn-sm" onclick="deleteCurrentRoom()" style="flex:1">Eliminar</button>
     </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="exportRooms()" style="flex:1;background:#0f3460;">📥 Exportar</button>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importInput').click()" style="flex:1;background:#0f3460;">📤 Importar</button>
+      <input type="file" id="importInput" accept=".json" onchange="importRooms(event)" style="display:none">
+    </div>
   </div>
 
   <div class="section">
@@ -162,12 +167,20 @@
   </div>
 
   <div class="section" id="customSection">
-    <div class="section-title">Mueble Personalizado</div>
-    <input type="text" id="customName" placeholder="Nombre del mueble">
-    <div class="row"><label>Ancho:</label><input type="number" id="customW" value="0.8" min="0.1" max="10" step="0.1"><span class="unit">m</span></div>
-    <div class="row"><label>Largo:</label><input type="number" id="customH" value="0.8" min="0.1" max="10" step="0.1"><span class="unit">m</span></div>
-    <div class="row"><label>Alto:</label><input type="number" id="customHt" value="0.8" min="0.1" max="4" step="0.1"><span class="unit">m</span></div>
-    <button class="btn btn-secondary" onclick="addCustom()" style="width:100%;margin-top:4px">Agregar</button>
+    <div class="section-title">Añadir Estructura / Objeto</div>
+    <div class="row" style="margin-bottom:8px">
+      <label>Tipo:</label>
+      <select id="customType" onchange="adaptCustomDefaults()">
+        <option value="custom_mueble">📦 Mueble Pers.</option>
+        <option value="custom_pared">🧱 Pared Interna</option>
+        <option value="custom_viga">🏗️ Viga de Techo</option>
+      </select>
+    </div>
+    <input type="text" id="customName" placeholder="Nombre (ej. Tabique)">
+    <div class="row"><label>Ancho:</label><input type="number" id="customW" value="0.8" min="0.05" max="10" step="0.05"><span class="unit">m</span></div>
+    <div class="row"><label>Grosor/P.:</label><input type="number" id="customH" value="0.8" min="0.05" max="10" step="0.05"><span class="unit">m</span></div>
+    <div class="row"><label>Alto:</label><input type="number" id="customHt" value="0.8" min="0.05" max="5" step="0.05"><span class="unit">m</span></div>
+    <button class="btn btn-secondary" onclick="addCustom()" style="width:100%;margin-top:4px">Agregar al Cuarto</button>
   </div>
 
   <div class="section properties" id="propsPanel">
@@ -223,6 +236,10 @@ const DEFS = {
   tv:          {name:'TV',          w:1.2,d:.08,h:.7,  color:'#2C2C2C'},
   dining_table:{name:'Mesa Comedor',w:1.6,d:.9, h:.75, color:'#A08050'},
   fridge:      {name:'Nevera',      w:.6, d:.65,h:1.7, color:'#C0C0C0'},
+  // Estructuras añadidas de manera dinámica
+  custom_mueble:{name:'Mueble Pers.',w:.8,  d:.8,  h:.8,  color:'#FF9800'},
+  custom_pared: {name:'Pared Interna',w:2.0, d:.12, h:2.5, color:'#d4cfc4'},
+  custom_viga:  {name:'Viga',         w:3.0, d:.25, h:.3,  color:'#8B7B6B'}
 };
 
 const COLORS = ['#6B8E9B','#5B7E8B','#8B6F5E','#A0855B','#7A6B5B','#6B5B4B','#9B8B7B',
@@ -266,6 +283,52 @@ function save() {
   };
   data.currentId = currentRoomId;
   saveStorage(data);
+}
+
+// ===== EXPORT & IMPORT ENGINE =====
+window.exportRooms = function() {
+  const data = loadStorage();
+  if (!data || Object.keys(data.rooms).length === 0) {
+    alert("No tienes ningún cuarto guardado para exportar.");
+    return;
+  }
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+  const downloadAnchor = document.createElement('a');
+  downloadAnchor.setAttribute("href", dataStr);
+  downloadAnchor.setAttribute("download", `mis_cuartos_planificador.json`);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  downloadAnchor.remove();
+}
+
+window.importRooms = function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const importedData = JSON.parse(e.target.result);
+      if (!importedData.rooms) {
+        alert("El archivo no tiene un formato válido de Planificador 3D.");
+        return;
+      }
+      const currentData = loadStorage();
+      // Fusionar los cuartos importados en la base de datos actual
+      Object.keys(importedData.rooms).forEach(id => {
+        currentData.rooms[id] = importedData.rooms[id];
+      });
+      if (importedData.currentId) currentData.currentId = importedData.currentId;
+      saveStorage(currentData);
+      alert("¡Cuartos importados con éxito!");
+      const targetId = importedData.currentId || Object.keys(importedData.rooms)[0];
+      if (targetId) loadRoom(targetId);
+    } catch (err) {
+      alert("Error al leer el archivo JSON. Asegúrate de que sea un archivo correcto.");
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
 }
 
 function newRoomId() { return 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
@@ -489,6 +552,32 @@ function addTextSprite(text, x, y, z, scale) {
   sprite.position.set(x, y, z);
   sprite.scale.set(scale * 2, scale * 0.5, 1);
   roomGroup.add(sprite);
+}
+
+// ===== DINAMIC ADAPTATION FOR WALLS & BEAMS =====
+window.adaptCustomDefaults = function() {
+  const type = document.getElementById('customType').value;
+  const inputW = document.getElementById('customW');
+  const inputD = document.getElementById('customH');
+  const inputH = document.getElementById('customHt');
+  const inputName = document.getElementById('customName');
+
+  if(type === 'custom_pared') {
+    inputName.placeholder = "Pared divisoria";
+    inputW.value = "2.0";
+    inputD.value = "0.12"; // Grosor estándar de tabique
+    inputH.value = wallH;  // Ajusta la altura a la de la habitación
+  } else if(type === 'custom_viga') {
+    inputName.placeholder = "Viga estructural";
+    inputW.value = "3.0";
+    inputD.value = "0.25";
+    inputH.value = "0.3";  // Cuelgue de viga estándar
+  } else {
+    inputName.placeholder = "Nombre del mueble";
+    inputW.value = "0.8";
+    inputD.value = "0.8";
+    inputH.value = "0.8";
+  }
 }
 
 // ===== FURNITURE 3D BUILDERS =====
@@ -801,6 +890,22 @@ const BUILDERS = {
     // Top
     const topM = box(W+0.01, 0.02, D+0.01, mat(dk));
     topM.position.set(0, H, 0); g.add(topM);
+  },
+
+  // Renders de los Objetos Nuevos/Personalizados
+  custom_mueble(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col)); body.position.set(0, H/2, 0); g.add(body);
+    const frame = box(W+0.01, 0.02, D+0.01, mat(dk)); frame.position.set(0, H, 0); g.add(frame);
+  },
+  custom_pared(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col, {rough: 0.9})); // Pared sólida y mate
+    body.position.set(0, H/2, 0);
+    g.add(body);
+  },
+  custom_viga(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col, {rough: 0.6})); // Viga estructural
+    body.position.set(0, H/2, 0);
+    g.add(body);
   },
 
   _default(g, W, D, H, col, dk) {
@@ -1171,12 +1276,33 @@ window.delSel = function() {
 };
 
 window.addCustom = function() {
-  const n = document.getElementById('customName').value || 'Custom';
+  const type = document.getElementById('customType') ? document.getElementById('customType').value : 'custom_mueble';
+  const nameInput = document.getElementById('customName').value.trim();
   const w = parseFloat(document.getElementById('customW').value) || 0.8;
   const d = parseFloat(document.getElementById('customH').value) || 0.8;
   const h = parseFloat(document.getElementById('customHt').value) || 0.8;
-  const item = { id: uid(), type: 'custom', name: n, x: roomW/2, z: roomD/2, w, d, h, color: '#8B6F5E', rot: 0, yOff: 0 };
-  items.push(item); rebuildItem(item); selectItem(item.id);
+
+  const defName = DEFS[type] ? DEFS[type].name : 'Custom';
+  const finalName = nameInput || `${defName} (${w}x${d}m)`;
+  const finalColor = DEFS[type] ? DEFS[type].color : '#8B6F5E';
+
+  // Si es viga, nace arriba en el techo, sino abajo en el suelo (0)
+  const yOffsetCalculated = (type === 'custom_viga') ? (wallH - h) : 0;
+
+  const item = {
+    id: uid(), type: type, name: finalName,
+    w, d, h,
+    color: finalColor,
+    x: roomW / 2,
+    z: roomD / 2,
+    yOff: yOffsetCalculated,
+    rot: 0
+  };
+
+  items.push(item);
+  save();
+  rebuildAll();
+  selectItem(item.id);
 };
 
 // ===== ROOM / VIEW =====
@@ -1621,6 +1747,7 @@ buildRoom();
 items.forEach(it => furnitureGroup.add(buildFurniture3D(it)));
 onResize();
 resetCamera();
+adaptCustomDefaults();
 animate();
 
 </script>
