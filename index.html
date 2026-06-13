@@ -163,6 +163,11 @@
       <div class="catalog-item" onclick="selectCatalog('tv')"><div class="icon">📺</div><div class="name">TV</div></div>
       <div class="catalog-item" onclick="selectCatalog('dining_table')"><div class="icon">🍽️</div><div class="name">Mesa comedor</div></div>
       <div class="catalog-item" onclick="selectCatalog('fridge')"><div class="icon">🧊</div><div class="name">Nevera</div></div>
+      <div class="catalog-item" onclick="selectCatalog('cabinet_base')"><div class="icon">🗄️</div><div class="name">Armario Base</div></div>
+      <div class="catalog-item" onclick="selectCatalog('cabinet_wall')"><div class="icon">🗃️</div><div class="name">Mueble Alto</div></div>
+      <div class="catalog-item" onclick="selectCatalog('drawer_unit')"><div class="icon">🧰</div><div class="name">Cajonera</div></div>
+      <div class="catalog-item" onclick="selectCatalog('kitchen_sink')"><div class="icon">🚰</div><div class="name">Fregadero</div></div>
+      <div class="catalog-item" onclick="selectCatalog('stove')"><div class="icon">🔥</div><div class="name">Cocina</div></div>
     </div>
   </div>
 
@@ -236,6 +241,11 @@ const DEFS = {
   tv:          {name:'TV',          w:1.2,d:.08,h:.7,  color:'#2C2C2C'},
   dining_table:{name:'Mesa Comedor',w:1.6,d:.9, h:.75, color:'#A08050'},
   fridge:      {name:'Nevera',      w:.6, d:.65,h:1.7, color:'#C0C0C0'},
+  cabinet_base:{name:'Armario Base',w:1.2,d:.6, h:.9, color:'#c2b280'},
+  cabinet_wall:{name:'Mueble Alto', w:1.0,d:.35,h:.7, color:'#d6c8b3'},
+  drawer_unit: {name:'Cajonera',    w:.6, d:.6, h:.9, color:'#a48a5f'},
+  kitchen_sink:{name:'Fregadero',   w:1.0, d:.6, h:.9, color:'#a0a0a0'},
+  stove:       {name:'Cocina',      w:.9, d:.6, h:.9, color:'#333333'},
   // Estructuras añadidas de manera dinámica
   custom_mueble:{name:'Mueble Pers.',w:.8,  d:.8,  h:.8,  color:'#FF9800'},
   custom_pared: {name:'Pared Interna',w:2.0, d:.12, h:2.5, color:'#d4cfc4'},
@@ -890,6 +900,64 @@ const BUILDERS = {
     // Top
     const topM = box(W+0.01, 0.02, D+0.01, mat(dk));
     topM.position.set(0, H, 0); g.add(topM);
+  },
+
+  cabinet_base(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col));
+    body.position.set(0, H/2, 0); g.add(body);
+    const panel = box(W-0.04, H-0.05, D-0.04, mat(dk));
+    panel.position.set(0, H-0.03, 0); g.add(panel);
+    const handle = box(0.02, 0.06, 0.02, mat(0x444444));
+    handle.position.set(-W/2 + 0.1, H*0.5, D/2 + 0.03); g.add(handle);
+    const handle2 = box(0.02, 0.06, 0.02, mat(0x444444));
+    handle2.position.set(W/2 - 0.1, H*0.5, D/2 + 0.03); g.add(handle2);
+  },
+
+  cabinet_wall(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col, {rough:0.9}));
+    body.position.set(0, H/2, 0); g.add(body);
+    const front = box(W-0.05, H-0.05, 0.02, mat(dk));
+    front.position.set(0, H/2, D/2 - 0.01); g.add(front);
+    const line = box(W-0.01, H - 0.08, 0.02, mat(0xaaaaaa));
+    line.position.set(0, H/2, D/2 - 0.01); g.add(line);
+  },
+
+  drawer_unit(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col));
+    body.position.set(0, H/2, 0); g.add(body);
+    const gap = 0.05;
+    const drawerH = (H - 0.05) / 3;
+    for (let i = 0; i < 3; i++) {
+      const drawer = box(W-0.06, drawerH - 0.02, D-0.04, mat(dk));
+      drawer.position.set(0, 0.03 + i * drawerH + drawerH/2, 0); g.add(drawer);
+      const handle = box(0.04, 0.02, 0.02, mat(0x555555));
+      handle.position.set(0, 0.03 + i * drawerH + drawerH/2, D/2 + 0.03); g.add(handle);
+    }
+  },
+
+  kitchen_sink(g, W, D, H, col, dk) {
+    const base = box(W, H, D, mat(col));
+    base.position.set(0, H/2, 0); g.add(base);
+    const basin = box(W-0.1, 0.1, D-0.5, mat(0xdddddd, {rough:0.9}));
+    basin.position.set(0, H-0.05, 0); g.add(basin);
+    const faucet = box(0.04, 0.4, 0.04, mat(0x333333, {metal:0.7, rough:0.2}));
+    faucet.position.set(W/2 - 0.15, H - 0.2, 0); g.add(faucet);
+    const spout = box(0.04, 0.04, 0.2, mat(0x333333, {metal:0.7, rough:0.2}));
+    spout.position.set(W/2 - 0.15, H - 0.4, 0.06); g.add(spout);
+  },
+
+  stove(g, W, D, H, col, dk) {
+    const body = box(W, H, D, mat(col, {rough:0.65}));
+    body.position.set(0, H/2, 0); g.add(body);
+    const top = box(W-0.04, 0.08, D-0.04, mat(0x111111, {metal:0.3, rough:0.4}));
+    top.position.set(0, H-0.04, 0); g.add(top);
+    const burners = [ -W*0.25, W*0.25 ];
+    burners.forEach(x => {
+      const burn = box(0.2, 0.02, 0.2, mat(0x222222, {rough:0.3, metal:0.2}));
+      burn.position.set(x, H-0.04, 0); g.add(burn);
+    });
+    const control = box(W-0.2, 0.05, 0.04, mat(dk));
+    control.position.set(0, 0.08, D/2 + 0.02); g.add(control);
   },
 
   // Renders de los Objetos Nuevos/Personalizados
@@ -1595,6 +1663,41 @@ const SHAPES2D = {
     c.beginPath();c.moveTo(x+w/2,y+2);c.lineTo(x+w/2,y+h-2);c.stroke();
     c.fillStyle=lt;c.beginPath();c.arc(x+w/2-5,y+h/2,2,0,Math.PI*2);c.fill();
     c.beginPath();c.arc(x+w/2+5,y+h/2,2,0,Math.PI*2);c.fill();
+  },
+  cabinet_base(c,x,y,w,h,col,dk,lt){
+    roundR(c,x,y,w,h,4);c.fillStyle=col;c.fill();c.strokeStyle=dk;c.lineWidth=1.2;c.stroke();
+    c.fillStyle=dk;c.fillRect(x+4,y+h*0.45,w-8,2);
+    c.fillStyle=lt;c.beginPath();c.arc(x+w*0.25,y+h*0.55,2,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(x+w*0.75,y+h*0.55,2,0,Math.PI*2);c.fill();
+  },
+  cabinet_wall(c,x,y,w,h,col,dk,lt){
+    roundR(c,x,y,w,h,4);c.fillStyle=col;c.fill();c.strokeStyle=dk;c.lineWidth=1.2;c.stroke();
+    c.fillStyle=dk;c.fillRect(x+4,y+6,w-8,2);
+    c.fillRect(x+4,y+h*0.55,w-8,2);
+  },
+  drawer_unit(c,x,y,w,h,col,dk,lt){
+    roundR(c,x,y,w,h,4);c.fillStyle=col;c.fill();c.strokeStyle=dk;c.lineWidth=1.2;c.stroke();
+    const row = (h - 12) / 3;
+    for (let i = 0; i < 3; i++) {
+      const yy = y + 6 + i * row;
+      c.strokeStyle=dk;c.lineWidth=1;c.strokeRect(x+4, yy, w-8, row-4);
+      c.fillStyle=lt;c.fillRect(x+w*0.5-4, yy+row/2-2, 8, 4);
+    }
+  },
+  kitchen_sink(c,x,y,w,h,col,dk,lt){
+    roundR(c,x,y,w,h,4);c.fillStyle=col;c.fill();c.strokeStyle=dk;c.lineWidth=1.2;c.stroke();
+    c.fillStyle='#cfd8dc';c.fillRect(x+6,y+8,w-12,h*0.25);
+    c.strokeStyle='#9e9e9e';c.lineWidth=1.5;c.strokeRect(x+6,y+8,w-12,h*0.25);
+    c.fillStyle='#444';c.fillRect(x+w-16,y+6,4,12);
+  },
+  stove(c,x,y,w,h,col,dk,lt){
+    roundR(c,x,y,w,h,4);c.fillStyle=col;c.fill();c.strokeStyle=dk;c.lineWidth=1.2;c.stroke();
+    const br = Math.min(w,h) * 0.2;
+    [[x+w*0.25,y+h*0.3],[x+w*0.75,y+h*0.3],[x+w*0.25,y+h*0.7],[x+w*0.75,y+h*0.7]].forEach(([cx,cy])=>{
+      c.fillStyle='#222';c.beginPath();c.arc(cx,cy,br*0.25,0,Math.PI*2);c.fill();
+      c.strokeStyle='#555';c.lineWidth=1;c.beginPath();c.arc(cx,cy,br*0.25,0,Math.PI*2);c.stroke();
+    });
+    c.fillStyle=lt;c.fillRect(x+6,y+h-14,w-12,6);
   },
   chair(c,x,y,w,h,col,dk,lt){
     roundR(c,x+w*.1,y,w*.8,h*.25,3);c.fillStyle=dk;c.fill();
