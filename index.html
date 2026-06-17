@@ -88,8 +88,7 @@
   .mode-toggle{display:flex;background:#0f3460;border-radius:6px;overflow:hidden}
   .mode-toggle button{
     padding:5px 12px;border:none;background:transparent;color:#888;
-    font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;
-  }
+    font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
   .mode-toggle button.active{background:#e94560;color:#fff}
 
   .hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
@@ -202,6 +201,15 @@
       <a id="propLinkView" href="#" target="_blank" rel="noopener" style="font-size:11px;color:#8ab4f8;display:none;">Ver enlace</a>
     </div>
     <div class="color-options" id="colorOpts"></div>
+    <div id="distPanel" style="display:none;margin-top:10px">
+      <div class="section-title">Distancias 2D</div>
+      <div class="prop-row"><label>Izquierda:</label><input type="number" id="distLeft" min="0" step="0.01" onchange="applyDistanceProp()"><span class="unit">m</span></div>
+      <div class="prop-row"><label>Derecha:</label><input type="number" id="distRight" min="0" step="0.01" onchange="applyDistanceProp()"><span class="unit">m</span></div>
+      <div class="prop-row"><label>Atras:</label><input type="number" id="distBack" min="0" step="0.01" onchange="applyDistanceProp()"><span class="unit">m</span></div>
+      <div class="prop-row"><label>Delante:</label><input type="number" id="distFront" min="0" step="0.01" onchange="applyDistanceProp()"><span class="unit">m</span></div>
+      <div class="prop-row"><label>Objeto cercano:</label><input type="number" id="distNearest" min="0" step="0.01" onchange="applyDistanceProp()"><span class="unit">m</span></div>
+      <div id="distNearestLabel" style="font-size:11px;color:#aaa;margin-top:4px"></div>
+    </div>
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="rotSel(-15)">↺ 15°</button>
       <button class="btn btn-secondary btn-sm" onclick="rotSel(15)">↻ 15°</button>
@@ -220,6 +228,7 @@
     </div>
     <button class="btn btn-secondary btn-sm" onclick="resetCamera()">Centrar</button>
     <button class="btn btn-secondary btn-sm" id="wallBtn" onclick="toggleWalls()">Paredes: ON</button>
+    <button class="btn btn-secondary btn-sm" id="distBtn" onclick="toggleDistances()">Distancias: OFF</button>
     <span class="info" id="infoBar"></span>
   </div>
   <div id="renderContainer"></div>
@@ -252,7 +261,6 @@ const DEFS = {
   drawer_unit: {name:'Cajonera',    w:.6, d:.6, h:.9, color:'#a48a5f', price: 220},
   kitchen_sink:{name:'Fregadero',   w:1.0, d:.6, h:.9, color:'#a0a0a0', price: 300},
   stove:       {name:'Cocina',      w:.9, d:.6, h:.9, color:'#333333', price: 450},
-  // Estructuras añadidas de manera dinámica
   custom_mueble:{name:'Mueble Pers.',w:.8,  d:.8,  h:.8,  color:'#FF9800'},
   custom_pared: {name:'Pared Interna',w:2.0, d:.12, h:2.5, color:'#d4cfc4'},
   custom_viga:  {name:'Viga',         w:3.0, d:.25, h:.3,  color:'#8B7B6B'}
@@ -266,10 +274,13 @@ let items = [];
 let selectedId = null;
 let roomW = 5, roomD = 4, wallH = 2.5;
 let showWalls = true;
+let showDistances = false;
 let mode = '3d';
 let placingType = null;
 let currentRoomId = null;
 let suppressSave = false;
+let closestDistanceTarget = null;
+let currentDistanceAnnotations = [];
 
 // ===== PERSISTENCE =====
 const STORAGE_KEY = 'roomPlanner.v1';
@@ -330,7 +341,6 @@ window.importRooms = function(event) {
         return;
       }
       const currentData = loadStorage();
-      // Fusionar los cuartos importados en la base de datos actual
       Object.keys(importedData.rooms).forEach(id => {
         currentData.rooms[id] = importedData.rooms[id];
       });
@@ -450,7 +460,6 @@ controls.target.set(roomW / 2, 0, roomD / 2);
 controls.maxPolarAngle = Math.PI / 2.05;
 controls.update();
 
-// Lights
 const ambient = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambient);
 
@@ -477,7 +486,6 @@ scene.add(furnitureGroup);
 function buildRoom() {
   roomGroup.clear();
 
-  // Floor
   const floorGeo = new THREE.PlaneGeometry(roomW, roomD);
   const floorMat = new THREE.MeshStandardMaterial({
     color: 0x2a2a3a, roughness: 0.8, metalness: 0.1
@@ -489,7 +497,6 @@ function buildRoom() {
   floor.name = 'floor';
   roomGroup.add(floor);
 
-  // Grid on floor
   const gridHelper = new THREE.GridHelper(Math.max(roomW, roomD), Math.max(roomW, roomD) * 2, 0x444466, 0x333355);
   gridHelper.position.set(roomW / 2, 0.005, roomD / 2);
   roomGroup.add(gridHelper);
@@ -507,20 +514,15 @@ function buildRoom() {
 
   const wallThick = 0.08;
 
-  // Back wall (z=0)
   addWall(roomW, wallH, wallThick, roomW/2, wallH/2, 0, 0, wallMat, wallEdgeMat);
-  // Front wall (z=roomD) - lower opacity so we can see in
   const frontMat = wallMat.clone(); frontMat.opacity = 0.35;
   const frontEdge = wallEdgeMat.clone(); frontEdge.opacity = 0.35;
   addWall(roomW, wallH, wallThick, roomW/2, wallH/2, roomD, 0, frontMat, frontEdge);
-  // Left wall (x=0)
   addWall(wallThick, wallH, roomD, 0, wallH/2, roomD/2, 0, wallMat, wallEdgeMat);
-  // Right wall (x=roomW) - lower opacity
   const rightMat = wallMat.clone(); rightMat.opacity = 0.35;
   const rightEdge = wallEdgeMat.clone(); rightEdge.opacity = 0.35;
   addWall(wallThick, wallH, roomD, roomW, wallH/2, roomD/2, 0, rightMat, rightEdge);
 
-  // Ceiling edge lines
   const ceilLineGeo = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(0,wallH,0), new THREE.Vector3(roomW,wallH,0),
     new THREE.Vector3(roomW,wallH,roomD), new THREE.Vector3(0,wallH,roomD),
@@ -529,7 +531,6 @@ function buildRoom() {
   const ceilLine = new THREE.Line(ceilLineGeo, new THREE.LineBasicMaterial({color:0x666666}));
   roomGroup.add(ceilLine);
 
-  // Baseboard
   const baseGeo = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(0,0,0), new THREE.Vector3(roomW,0,0),
     new THREE.Vector3(roomW,0,roomD), new THREE.Vector3(0,0,roomD),
@@ -538,7 +539,6 @@ function buildRoom() {
   const baseLine = new THREE.Line(baseGeo, new THREE.LineBasicMaterial({color:0x888888}));
   roomGroup.add(baseLine);
 
-  // Dimension labels (using sprites)
   addTextSprite(`${roomW.toFixed(1)}m`, roomW/2, 0.05, -0.3, 0.4);
   addTextSprite(`${roomD.toFixed(1)}m`, -0.3, 0.05, roomD/2, 0.4);
   addTextSprite(`${wallH.toFixed(1)}m`, -0.3, wallH/2, 0, 0.3);
@@ -581,13 +581,13 @@ window.adaptCustomDefaults = function() {
   if(type === 'custom_pared') {
     inputName.placeholder = "Pared divisoria";
     inputW.value = "2.0";
-    inputD.value = "0.12"; // Grosor estándar de tabique
-    inputH.value = wallH;  // Ajusta la altura a la de la habitación
+    inputD.value = "0.12";
+    inputH.value = wallH;
   } else if(type === 'custom_viga') {
     inputName.placeholder = "Viga estructural";
     inputW.value = "3.0";
     inputD.value = "0.25";
-    inputH.value = "0.3";  // Cuelgue de viga estándar
+    inputH.value = "0.3";
   } else {
     inputName.placeholder = "Nombre del mueble";
     inputW.value = "0.8";
@@ -610,7 +610,6 @@ function buildFurniture3D(item) {
 
   const col = hexToThreeColor(item.color);
   const dk = darkenColor(item.color, 0.3);
-  const lt = darkenColor(item.color, -0.2);
   const W = item.w, D = item.d, H = item.h;
 
   const builder = BUILDERS[item.type] || BUILDERS._default;
@@ -621,6 +620,7 @@ function buildFurniture3D(item) {
   return group;
 }
 
+// Helpers mesh
 function mat(color, opts = {}) {
   return new THREE.MeshStandardMaterial({
     color, roughness: opts.rough ?? 0.7, metalness: opts.metal ?? 0.05, ...opts
@@ -641,15 +641,12 @@ function cyl(rT,rB,h,seg,material) {
 
 const BUILDERS = {
   door(g, W, D, H, col, dk) {
-    // Frame
     const frame = box(W, H, 0.06, mat(dk));
     frame.position.set(0, H/2, 0);
     g.add(frame);
-    // Door panel
     const panel = box(W - 0.08, H - 0.05, 0.04, mat(col));
     panel.position.set(0, H/2, 0.02);
     g.add(panel);
-    // Handle
     const handle = cyl(0.015, 0.015, 0.08, 8, mat(0xDAA520, {metal:0.8, rough:0.3}));
     handle.rotation.x = Math.PI/2;
     handle.position.set(W/2 - 0.1, H * 0.45, 0.05);
@@ -657,15 +654,12 @@ const BUILDERS = {
   },
 
   window(g, W, D, H, col, dk) {
-    // Frame
     const frame = box(W, H, 0.06, mat(0xf5f5f0));
     frame.position.set(0, H/2, 0);
     g.add(frame);
-    // Glass
     const glass = box(W - 0.08, H - 0.08, 0.02, mat(col, {transparent:true, opacity:0.4, rough:0.1}));
     glass.position.set(0, H/2, 0);
     g.add(glass);
-    // Crossbar
     const vbar = box(0.03, H - 0.08, 0.04, mat(0xf5f5f0));
     vbar.position.set(0, H/2, 0);
     g.add(vbar);
@@ -675,23 +669,18 @@ const BUILDERS = {
   },
 
   bed_single(g, W, D, H, col, dk) {
-    // Frame
     const frame = box(W, H*0.4, D, mat(dk));
     frame.position.set(0, H*0.2, 0);
     g.add(frame);
-    // Mattress
     const mattress = box(W-0.04, H*0.35, D-0.04, mat(0xeee8df, {rough:0.9}));
     mattress.position.set(0, H*0.58, 0);
     g.add(mattress);
-    // Headboard
     const hb = box(W, H*1.2, 0.06, mat(dk));
     hb.position.set(0, H*0.6, -D/2+0.03);
     g.add(hb);
-    // Pillow
     const pillow = box(W*0.55, H*0.2, 0.25, mat(0xffffff, {rough:0.95}));
     pillow.position.set(0, H*0.85, -D/2+0.2);
     g.add(pillow);
-    // Blanket
     const blanket = box(W-0.06, 0.04, D*0.65, mat(col, {rough:0.95}));
     blanket.position.set(0, H*0.78, D*0.1);
     g.add(blanket);
@@ -707,7 +696,6 @@ const BUILDERS = {
     const hb = box(W, H*1.2, 0.06, mat(dk));
     hb.position.set(0, H*0.6, -D/2+0.03);
     g.add(hb);
-    // Two pillows
     const pw = W*0.35;
     const p1 = box(pw, H*0.2, 0.25, mat(0xffffff, {rough:0.95}));
     p1.position.set(-W/4+0.02, H*0.85, -D/2+0.2); g.add(p1);
@@ -718,18 +706,14 @@ const BUILDERS = {
   },
 
   sofa(g, W, D, H, col, dk) {
-    // Base
     const base = box(W, H*0.4, D, mat(col));
     base.position.set(0, H*0.2, 0); g.add(base);
-    // Back
     const back = box(W, H*0.65, D*0.2, mat(dk));
     back.position.set(0, H*0.52, -D/2+D*0.1); g.add(back);
-    // Arms
     const armL = box(D*0.15, H*0.5, D, mat(dk));
     armL.position.set(-W/2+D*0.075, H*0.35, 0); g.add(armL);
     const armR = box(D*0.15, H*0.5, D, mat(dk));
     armR.position.set(W/2-D*0.075, H*0.35, 0); g.add(armR);
-    // Cushions
     const cw = (W - D*0.3 - 0.06) / 2;
     for (let i = 0; i < 2; i++) {
       const cx = -cw/2 - 0.015 + (cw + 0.03) * i;
@@ -740,10 +724,8 @@ const BUILDERS = {
   },
 
   table(g, W, D, H, col, dk) {
-    // Top
     const top = box(W, 0.04, D, mat(col));
     top.position.set(0, H-0.02, 0); g.add(top);
-    // Legs
     const legR = 0.03, legH = H - 0.04;
     const positions = [[-W/2+0.06,0,-D/2+0.06],[W/2-0.06,0,-D/2+0.06],[-W/2+0.06,0,D/2-0.06],[W/2-0.06,0,D/2-0.06]];
     positions.forEach(([lx,,lz]) => {
@@ -753,18 +735,14 @@ const BUILDERS = {
   },
 
   desk(g, W, D, H, col, dk) {
-    // Top
     const top = box(W, 0.04, D, mat(col));
     top.position.set(0, H-0.02, 0); g.add(top);
-    // Left legs
     const leg1 = box(0.04, H-0.04, 0.04, mat(dk));
     leg1.position.set(-W/2+0.05, (H-0.04)/2, -D/2+0.05); g.add(leg1);
     const leg2 = box(0.04, H-0.04, 0.04, mat(dk));
     leg2.position.set(-W/2+0.05, (H-0.04)/2, D/2-0.05); g.add(leg2);
-    // Right drawer cabinet
     const cab = box(W*0.35, H*0.6, D-0.04, mat(dk));
     cab.position.set(W/2-W*0.175-0.02, H*0.3, 0); g.add(cab);
-    // Drawer faces
     for (let i = 0; i < 3; i++) {
       const df = box(W*0.35-0.04, H*0.17, 0.02, mat(col));
       df.position.set(W/2-W*0.175-0.02, H*0.12 + i*H*0.2, D/2-0.03);
@@ -777,35 +755,28 @@ const BUILDERS = {
   },
 
   wardrobe(g, W, D, H, col, dk) {
-    // Body
     const body = box(W, H, D, mat(col));
     body.position.set(0, H/2, 0); g.add(body);
-    // Door line
     const line = box(0.01, H-0.1, D-0.06, mat(dk));
     line.position.set(0, H/2, 0.01); g.add(line);
-    // Handles
     const h1 = cyl(0.01,0.01,0.04,6,mat(0xaaaaaa,{metal:0.5}));
     h1.rotation.x = Math.PI/2;
     h1.position.set(-0.05, H/2, D/2+0.01); g.add(h1);
     const h2 = cyl(0.01,0.01,0.04,6,mat(0xaaaaaa,{metal:0.5}));
     h2.rotation.x = Math.PI/2;
     h2.position.set(0.05, H/2, D/2+0.01); g.add(h2);
-    // Top molding
     const mold = box(W+0.02, 0.04, D+0.02, mat(dk));
     mold.position.set(0, H-0.02, 0); g.add(mold);
   },
 
   chair(g, W, D, H, col, dk) {
     const seatH = H * 0.5;
-    // Legs
     [[-W/2+0.04,0,-D/2+0.04],[W/2-0.04,0,-D/2+0.04],[-W/2+0.04,0,D/2-0.04],[W/2-0.04,0,D/2-0.04]].forEach(([lx,,lz])=>{
       const leg = box(0.035, seatH, 0.035, mat(dk));
       leg.position.set(lx, seatH/2, lz); g.add(leg);
     });
-    // Seat
     const seat = box(W, 0.04, D, mat(col));
     seat.position.set(0, seatH, 0); g.add(seat);
-    // Backrest
     const back = box(W-0.04, H-seatH-0.02, 0.035, mat(col));
     back.position.set(0, seatH+(H-seatH)/2, -D/2+0.04); g.add(back);
   },
@@ -813,19 +784,16 @@ const BUILDERS = {
   nightstand(g, W, D, H, col, dk) {
     const body = box(W, H, D, mat(col));
     body.position.set(0, H/2, 0); g.add(body);
-    // Drawer
     const df = box(W-0.04, H*0.4, 0.02, mat(dk));
     df.position.set(0, H*0.5, D/2-0.02); g.add(df);
     const handle = cyl(0.008,0.008,0.03,6,mat(0xaaaaaa,{metal:0.5}));
     handle.rotation.x = Math.PI/2;
     handle.position.set(0, H*0.5, D/2); g.add(handle);
-    // Top
     const top = box(W+0.01, 0.02, D+0.01, mat(dk));
     top.position.set(0, H, 0); g.add(top);
   },
 
   bookshelf(g, W, D, H, col, dk) {
-    // Frame
     const back = box(W, H, 0.02, mat(dk));
     back.position.set(0, H/2, -D/2+0.01); g.add(back);
     const sideL = box(0.03, H, D, mat(col));
@@ -834,7 +802,6 @@ const BUILDERS = {
     sideR.position.set(W/2-0.015, H/2, 0); g.add(sideR);
     const top = box(W, 0.03, D, mat(col));
     top.position.set(0, H-0.015, 0); g.add(top);
-    // Shelves + books
     const rows = 4;
     const bookColors = [0xc0392b, 0x2980b9, 0x27ae60, 0xf39c12, 0x8e44ad, 0xd35400, 0x1abc9c];
     for (let i = 0; i <= rows; i++) {
@@ -859,16 +826,12 @@ const BUILDERS = {
   },
 
   tv(g, W, D, H, col, dk) {
-    // Screen
     const screen = box(W, H, 0.03, mat(0x111111, {rough:0.1, metal:0.2}));
     screen.position.set(0, H/2, 0); g.add(screen);
-    // Bezel
     const bezel = box(W+0.02, H+0.02, 0.025, mat(0x222222));
     bezel.position.set(0, H/2, -0.005); g.add(bezel);
-    // Screen glare
     const glare = box(W*0.3, H*0.6, 0.002, mat(0x334455, {transparent:true, opacity:0.2}));
     glare.position.set(-W*0.15, H*0.55, 0.017); g.add(glare);
-    // Stand
     const stand = box(0.06, 0.04, 0.15, mat(0x333333));
     stand.position.set(0, -0.02, 0.05); g.add(stand);
     const base = box(W*0.3, 0.015, 0.2, mat(0x333333));
@@ -876,34 +839,27 @@ const BUILDERS = {
   },
 
   dining_table(g, W, D, H, col, dk) {
-    // Top
     const top = box(W, 0.05, D, mat(col));
     top.position.set(0, H-0.025, 0); g.add(top);
-    // Legs
     [[-W/2+0.08, 0, -D/2+0.08],[W/2-0.08,0,-D/2+0.08],[-W/2+0.08,0,D/2-0.08],[W/2-0.08,0,D/2-0.08]].forEach(([lx,,lz])=>{
       const leg = box(0.06, H-0.05, 0.06, mat(dk));
       leg.position.set(lx, (H-0.05)/2, lz); g.add(leg);
     });
-    // Cross support
     const support = box(W-0.2, 0.04, 0.04, mat(dk));
     support.position.set(0, H*0.3, 0); g.add(support);
   },
 
   fridge(g, W, D, H, col, dk) {
-    // Body
     const body = box(W, H, D, mat(col, {metal:0.15, rough:0.5}));
     body.position.set(0, H/2, 0); g.add(body);
-    // Freezer line
     const split = H * 0.35;
     const line = box(W-0.04, 0.01, 0.01, mat(0x999999));
     line.position.set(0, split, D/2); g.add(line);
-    // Handles
     const hMat = mat(0x888888, {metal:0.6, rough:0.3});
     const h1 = box(0.02, split*0.4, 0.03, hMat);
     h1.position.set(W/2-0.05, split*0.5, D/2+0.02); g.add(h1);
     const h2 = box(0.02, H*0.25, 0.03, hMat);
     h2.position.set(W/2-0.05, split+H*0.2, D/2+0.02); g.add(h2);
-    // Top
     const topM = box(W+0.01, 0.02, D+0.01, mat(dk));
     topM.position.set(0, H, 0); g.add(topM);
   },
@@ -931,7 +887,6 @@ const BUILDERS = {
   drawer_unit(g, W, D, H, col, dk) {
     const body = box(W, H, D, mat(col));
     body.position.set(0, H/2, 0); g.add(body);
-    const gap = 0.05;
     const drawerH = (H - 0.05) / 3;
     for (let i = 0; i < 3; i++) {
       const drawer = box(W-0.06, drawerH - 0.02, D-0.04, mat(dk));
@@ -966,18 +921,17 @@ const BUILDERS = {
     control.position.set(0, 0.08, D/2 + 0.02); g.add(control);
   },
 
-  // Renders de los Objetos Nuevos/Personalizados
   custom_mueble(g, W, D, H, col, dk) {
     const body = box(W, H, D, mat(col)); body.position.set(0, H/2, 0); g.add(body);
     const frame = box(W+0.01, 0.02, D+0.01, mat(dk)); frame.position.set(0, H, 0); g.add(frame);
   },
   custom_pared(g, W, D, H, col, dk) {
-    const body = box(W, H, D, mat(col, {rough: 0.9})); // Pared sólida y mate
+    const body = box(W, H, D, mat(col, {rough: 0.9}));
     body.position.set(0, H/2, 0);
     g.add(body);
   },
   custom_viga(g, W, D, H, col, dk) {
-    const body = box(W, H, D, mat(col, {rough: 0.6})); // Viga estructural
+    const body = box(W, H, D, mat(col, {rough: 0.6}));
     body.position.set(0, H/2, 0);
     g.add(body);
   },
@@ -990,7 +944,6 @@ const BUILDERS = {
   }
 };
 
-// ===== REBUILD ALL FURNITURE =====
 function rebuildScene() {
   furnitureGroup.clear();
   items.forEach(item => {
@@ -1000,7 +953,6 @@ function rebuildScene() {
 }
 
 function rebuildItem(item) {
-  // Remove old
   const old = furnitureGroup.children.find(c => c.userData.itemId === item.id);
   if (old) furnitureGroup.remove(old);
   const mesh = buildFurniture3D(item);
@@ -1044,7 +996,6 @@ function onPointerDown(e) {
   if (e.button && e.button !== 0) return;
   getMouseWorld(e);
 
-  // If placing from catalog
   if (placingType) {
     const pt = getFloorPoint(e);
     if (pt) {
@@ -1067,7 +1018,6 @@ function onPointerDown(e) {
     return;
   }
 
-  // Raycast to find clicked item
   const allMeshes = [];
   furnitureGroup.traverse(c => { if (c.isMesh) allMeshes.push(c); });
   const hits = raycaster.intersectObjects(allMeshes, false);
@@ -1087,7 +1037,6 @@ function onPointerDown(e) {
     }
   }
 
-  // Clicked floor = deselect
   selectItem(null);
 }
 
@@ -1120,7 +1069,7 @@ function onPointerUp() {
 renderer.domElement.addEventListener('mousedown', onPointerDown);
 renderer.domElement.addEventListener('mousemove', onPointerMove);
 renderer.domElement.addEventListener('mouseup', onPointerUp);
-// Touch: detect tap vs drag to distinguish placing/selecting from camera control
+
 let touchStartTime = 0;
 let touchStartPos = { x: 0, y: 0 };
 let touchMoved = false;
@@ -1128,7 +1077,6 @@ let touchDragActive = false;
 
 renderer.domElement.addEventListener('touchstart', e => {
   if (e.touches.length !== 1) {
-    // Multi-touch = let OrbitControls handle (pinch zoom, two-finger pan)
     if (draggingItem) { draggingItem = null; controls.enabled = true; }
     touchDragActive = false;
     return;
@@ -1139,7 +1087,6 @@ renderer.domElement.addEventListener('touchstart', e => {
   touchMoved = false;
   touchDragActive = false;
 
-  // Check if touching an existing item for drag
   getMouseWorld(e);
   const allMeshes = [];
   furnitureGroup.traverse(c => { if (c.isMesh) allMeshes.push(c); });
@@ -1149,20 +1096,18 @@ renderer.domElement.addEventListener('touchstart', e => {
     if (itemMesh) {
       const item = items.find(i => i.id === itemMesh.userData.itemId);
       if (item) {
-        // Prepare for potential drag - will activate after movement threshold
         draggingItem = item;
         selectItem(item.id);
         const pt = getFloorPoint(e);
         if (pt) dragOffset.set(pt.x - item.x, 0, pt.z - item.z);
-        touchDragActive = false; // not yet, wait for movement
-        // Don't disable controls yet - let user rotate if they swipe
+        touchDragActive = false;
       }
     }
   }
 }, { passive: true });
 
 renderer.domElement.addEventListener('touchmove', e => {
-  if (e.touches.length !== 1) return; // let OrbitControls handle multi-touch
+  if (e.touches.length !== 1) return;
 
   const t = e.touches[0];
   const dx = t.clientX - touchStartPos.x;
@@ -1171,7 +1116,6 @@ renderer.domElement.addEventListener('touchmove', e => {
 
   if (dist > 8) touchMoved = true;
 
-  // If dragging a furniture item and moved enough, take over from OrbitControls
   if (draggingItem && dist > 15 && !touchDragActive) {
     touchDragActive = true;
     controls.enabled = false;
@@ -1181,13 +1125,9 @@ renderer.domElement.addEventListener('touchmove', e => {
     e.preventDefault();
     onPointerMove(e);
   }
-  // Otherwise OrbitControls handles camera rotation/pan naturally
 }, { passive: false });
 
 renderer.domElement.addEventListener('touchend', e => {
-  const wasDrag = touchDragActive;
-  const wasMoved = touchMoved;
-
   if (touchDragActive) {
     controls.enabled = true;
     draggingItem = null;
@@ -1196,13 +1136,10 @@ renderer.domElement.addEventListener('touchend', e => {
     return;
   }
 
-  // If it was a short tap without much movement = tap action
   const elapsed = Date.now() - touchStartTime;
-  if (!wasMoved && elapsed < 300) {
-    // Simulate a click for placing items or selecting
+  if (!touchMoved && elapsed < 300) {
     const fakeEvent = { clientX: touchStartPos.x, clientY: touchStartPos.y };
-    // Need to redo the pointer down logic for tap
-    draggingItem = null; // reset any pre-drag state
+    draggingItem = null;
 
     if (placingType) {
       getMouseWorld(fakeEvent);
@@ -1221,7 +1158,6 @@ renderer.domElement.addEventListener('touchend', e => {
         placingType = null; clearCatalogHighlight(); updateHint();
       }
     } else {
-      // Tap to select/deselect
       getMouseWorld(fakeEvent);
       const allMeshes = [];
       furnitureGroup.traverse(c => { if (c.isMesh) allMeshes.push(c); });
@@ -1236,7 +1172,6 @@ renderer.domElement.addEventListener('touchend', e => {
       } else selectItem(null);
     }
   } else {
-    // Was a swipe/pan on empty space - OrbitControls handled it, just cleanup
     draggingItem = null;
   }
   controls.enabled = true;
@@ -1259,8 +1194,8 @@ function updateSelectionHighlight() {
 }
 
 // ===== HELPERS =====
-const DRAG_GRID = 0.02; // 2cm snapping while arrastrando
-const MAGNET_RANGE = 0.18; // 18cm de imán para alinearse a paredes
+const DRAG_GRID = 0.02;
+const MAGNET_RANGE = 0.18;
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function snap(v) { return Math.round(v / DRAG_GRID) * DRAG_GRID; }
@@ -1273,6 +1208,362 @@ function getOrientedHalfExtents(item) {
     halfX: Math.abs(item.w * 0.5 * cos) + Math.abs(item.d * 0.5 * sin),
     halfZ: Math.abs(item.w * 0.5 * sin) + Math.abs(item.d * 0.5 * cos)
   };
+}
+
+function getAxisDistances(item) {
+  const { halfX, halfZ } = getOrientedHalfExtents(item);
+  const itExt = {
+    left: item.x - halfX,
+    right: item.x + halfX,
+    back: item.z - halfZ,
+    front: item.z + halfZ
+  };
+
+  const distances = {
+    left: { dist: itExt.left, type: 'wall', targetId: null },
+    right: { dist: roomW - itExt.right, type: 'wall', targetId: null },
+    back: { dist: itExt.back, type: 'wall', targetId: null },
+    front: { dist: roomD - itExt.front, type: 'wall', targetId: null },
+    nearest: { dist: Infinity, dir: null, targetType: null, targetId: null }
+  };
+
+  const updateAxis = (direction, dist, type, targetId) => {
+    if (dist < 0) dist = 0;
+    if (dist < distances[direction].dist) {
+      distances[direction] = { dist, type, targetId };
+    }
+    if (dist < distances.nearest.dist) {
+      distances.nearest = { dist, dir: direction, targetType: type, targetId };
+    }
+  };
+
+  items.forEach(other => {
+    if (other.id === item.id) return;
+    const otherExtents = getOrientedHalfExtents(other);
+    const otherExt = {
+      left: other.x - otherExtents.halfX,
+      right: other.x + otherExtents.halfX,
+      back: other.z - otherExtents.halfZ,
+      front: other.z + otherExtents.halfZ
+    };
+
+    const overlapZ = Math.max(0, Math.min(itExt.front, otherExt.front) - Math.max(itExt.back, otherExt.back));
+    if (overlapZ > 0) {
+      if (otherExt.right <= itExt.left) {
+        updateAxis('left', itExt.left - otherExt.right, 'item', other.id);
+      } else if (otherExt.left >= itExt.right) {
+        updateAxis('right', otherExt.left - itExt.right, 'item', other.id);
+      }
+    }
+
+    const overlapX = Math.max(0, Math.min(itExt.right, otherExt.right) - Math.max(itExt.left, otherExt.left));
+    if (overlapX > 0) {
+      if (otherExt.front <= itExt.back) {
+        updateAxis('back', itExt.back - otherExt.front, 'item', other.id);
+      } else if (otherExt.back >= itExt.front) {
+        updateAxis('front', otherExt.back - itExt.front, 'item', other.id);
+      }
+    }
+  });
+
+  return distances;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function formatDist(value) {
+  return Math.max(0, parseFloat(value)).toFixed(2);
+}
+
+function collectDistanceAnnotations(item) {
+  const annotations = [];
+  if (!item) return annotations;
+  const threshold = 1.5;
+  const { halfX, halfZ } = getOrientedHalfExtents(item);
+  const itExt = { left: item.x - halfX, right: item.x + halfX, back: item.z - halfZ, front: item.z + halfZ };
+  const view = w2s2(item.x, item.z);
+  const wallDists = { left: item.x - halfX, right: roomW - (item.x + halfX), back: item.z - halfZ, front: roomD - (item.z + halfZ) };
+
+  if (wallDists.left >= 0 && wallDists.left <= threshold) {
+    annotations.push({ x1: w2s2(item.x - halfX, item.z).x, y1: view.y, x2: w2s2(item.x - halfX - wallDists.left, item.z).x, y2: view.y, value: wallDists.left, type: 'left' });
+  }
+  if (wallDists.right >= 0 && wallDists.right <= threshold) {
+    annotations.push({ x1: w2s2(item.x + halfX, item.z).x, y1: view.y, x2: w2s2(item.x + halfX + wallDists.right, item.z).x, y2: view.y, value: wallDists.right, type: 'right' });
+  }
+  if (wallDists.back >= 0 && wallDists.back <= threshold) {
+    annotations.push({ x1: view.x, y1: w2s2(item.x, item.z - halfZ).y, x2: view.x, y2: w2s2(item.x, item.z - halfZ - wallDists.back).y, value: wallDists.back, type: 'back' });
+  }
+  if (wallDists.front >= 0 && wallDists.front <= threshold) {
+    annotations.push({ x1: view.x, y1: w2s2(item.x, item.z + halfZ).y, x2: view.x, y2: w2s2(item.x, item.z + halfZ + wallDists.front).y, value: wallDists.front, type: 'front' });
+  }
+
+  items.forEach(other => {
+    if (other.id === item.id) return;
+    const otherExt = { left: other.x - getOrientedHalfExtents(other).halfX, right: other.x + getOrientedHalfExtents(other).halfX, back: other.z - getOrientedHalfExtents(other).halfZ, front: other.z + getOrientedHalfExtents(other).halfZ };
+    
+    const overlapZ = Math.max(0, Math.min(itExt.front, otherExt.front) - Math.max(itExt.back, otherExt.back));
+    if (overlapZ > 0) {
+      if (otherExt.right <= itExt.left) {
+        const dist = itExt.left - otherExt.right;
+        if (dist >= 0 && dist <= threshold) annotations.push({ x1: w2s2(item.x - halfX, item.z).x, y1: view.y, x2: w2s2(otherExt.right, item.z).x, y2: view.y, value: dist, type: 'left', objId: other.id });
+      } else if (otherExt.left >= itExt.right) {
+        const dist = otherExt.left - itExt.right;
+        if (dist >= 0 && dist <= threshold) annotations.push({ x1: w2s2(item.x + halfX, item.z).x, y1: view.y, x2: w2s2(otherExt.left, item.z).x, y2: view.y, value: dist, type: 'right', objId: other.id });
+      }
+    }
+    const overlapX = Math.max(0, Math.min(itExt.right, otherExt.right) - Math.max(itExt.left, otherExt.left));
+    if (overlapX > 0) {
+      if (otherExt.front <= itExt.back) {
+        const dist = itExt.back - otherExt.front;
+        if (dist >= 0 && dist <= threshold) annotations.push({ x1: view.x, y1: w2s2(item.x, item.z - halfZ).y, x2: view.x, y2: w2s2(item.x, otherExt.front).y, value: dist, type: 'back', objId: other.id });
+      } else if (otherExt.back >= itExt.front) {
+        const dist = otherExt.back - itExt.front;
+        if (dist >= 0 && dist <= threshold) annotations.push({ x1: view.x, y1: w2s2(item.x, item.z + halfZ).y, x2: view.x, y2: w2s2(item.x, otherExt.back).y, value: dist, type: 'front', objId: other.id });
+      }
+    }
+  });
+  return annotations;
+}
+
+// ===== ENGINE ANTI-COLLISION DE DISTANCIAS 2D =====
+function drawDistanceAnnotations() {
+  if (!showDistances || mode !== '2d' || !selectedId) return;
+  const c = ctx2;
+  const selected = items.find(i => i.id === selectedId);
+  const annotations = collectDistanceAnnotations(selected);
+  
+  if (annotations.length === 0) {
+    currentDistanceAnnotations = [];
+    return;
+  }
+
+  c.save();
+  c.font = '10px Segoe UI';
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+
+  // Separar y agrupar las cotas según su tipo u orientación geométrica (Eje X o Eje Z)
+  const groups = { left: [], right: [], back: [], front: [] };
+  annotations.forEach(a => {
+    if (groups[a.type]) groups[a.type].push(a);
+  });
+
+  // Procesar colisiones en cada grupo iterativamente desplazando textos paralelos
+  Object.keys(groups).forEach(key => {
+    const groupList = groups[key];
+    // Ordenar de menor a mayor distancia física calculada
+    groupList.sort((a, b) => a.value - b.value);
+
+    groupList.forEach((a, index) => {
+      const text = a.value.toFixed(2) + ' m';
+      const textWidth = c.measureText(text).width;
+      const textHeight = 14;
+
+      // Calcular centro geométrico original de la línea de cota
+      let mx = (a.x1 + a.x2) / 2;
+      let my = (a.y1 + a.y2) / 2;
+
+      // Desplazamiento inicial por defecto sobre el eje perpendicular
+      if (a.type === 'left' || a.type === 'right') {
+        my -= 8;
+      } else {
+        mx += (textWidth / 2 + 6);
+      }
+
+      // Estructura espacial temporal del rectángulo del texto para el motor de colisión
+      a.textRect = { x: mx - textWidth / 2 - 4, y: my - textHeight / 2 - 2, w: textWidth + 8, h: textHeight + 4 };
+
+      // Algoritmo anti-pisa: Iterar sobre elementos previos y empujar si colisionan en la pantalla
+      let attempts = 0;
+      let hasCollision = true;
+      while (hasCollision && attempts < 20) {
+        hasCollision = false;
+        for (let i = 0; i < index; i++) {
+          const prev = groupList[i];
+          const r1 = a.textRect;
+          const r2 = prev.textRect;
+
+          // Detección estándar AABB Overlap
+          if (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y) {
+            hasCollision = true;
+            // Empujar perpendicularmente basándose en la dirección para crear líneas paralelas limpias
+            if (a.type === 'left' || a.type === 'right') {
+              my -= 16; // Empuja verticalmente hacia arriba
+            } else {
+              mx += 45; // Empuja lateralmente a la derecha
+            }
+            a.textRect.x = mx - textWidth / 2 - 4;
+            a.textRect.y = my - textHeight / 2 - 2;
+            break;
+          }
+        }
+        attempts++;
+      }
+
+      // Almacenar coordenadas de render corregidas finales
+      a.renderX = mx;
+      a.renderY = my;
+    });
+  });
+
+  // Guardar copia limpia global indexada de cotas finales calculadas en pantalla
+  currentDistanceAnnotations = annotations;
+
+  // Dibujar las líneas y los textos ya reubicados sin solapamientos
+  annotations.forEach(a => {
+    // 1. Dibujar línea de cota discontinua
+    c.strokeStyle = 'rgba(255,255,255,0.65)';
+    c.lineWidth = 1;
+    c.setLineDash([4, 4]);
+    c.beginPath();
+    c.moveTo(a.x1, a.y1);
+    c.lineTo(a.x2, a.y2);
+    c.stroke();
+    c.setLineDash([]);
+
+    // 2. Si el texto fue desplazado, dibujar una línea guía sutil continua al eje original
+    let origMx = (a.x1 + a.x2) / 2;
+    let origMy = (a.y1 + a.y2) / 2;
+    if (a.type === 'left' || a.type === 'right') {
+      origMy -= 8;
+    } else {
+      origMx += (c.measureText(a.value.toFixed(2) + ' m').width / 2 + 6);
+    }
+
+    if (Math.abs(a.renderX - origMx) > 2 || Math.abs(a.renderY - origMy) > 2) {
+      c.strokeStyle = 'rgba(233, 69, 96, 0.5)';
+      c.lineWidth = 0.8;
+      c.beginPath();
+      c.moveTo(origMx, origMy);
+      c.lineTo(a.renderX, a.renderY);
+      c.stroke();
+    }
+
+    // 3. Dibujar fondo opaco del texto para mejorar contraste de lectura en áreas densas
+    const text = a.value.toFixed(2) + ' m';
+    const tw = c.measureText(text).width;
+    c.fillStyle = '#16213e';
+    c.fillRect(a.renderX - tw/2 - 3, a.renderY - 6, tw + 6, 12);
+    c.strokeStyle = 'rgba(255,255,255,0.15)';
+    c.strokeRect(a.renderX - tw/2 - 3, a.renderY - 6, tw + 6, 12);
+
+    // 4. Dibujar texto numérico final
+    c.fillStyle = '#ffffff';
+    c.fillText(text, a.renderX, a.renderY);
+  });
+
+  c.restore();
+}
+
+function updateDistancePanel() {
+  const panel = document.getElementById('distPanel');
+  if (!panel) return;
+  const isActive = showDistances && mode === '2d' && selectedId;
+  panel.style.display = isActive ? 'block' : 'none';
+  if (!isActive) return;
+
+  const it = items.find(i => i.id === selectedId);
+  if (!it) return;
+  const distances = getAxisDistances(it);
+  document.getElementById('distLeft').value = formatDist(distances.left.dist);
+  document.getElementById('distRight').value = formatDist(distances.right.dist);
+  document.getElementById('distBack').value = formatDist(distances.back.dist);
+  document.getElementById('distFront').value = formatDist(distances.front.dist);
+
+  const nearestLabel = document.getElementById('distNearestLabel');
+  const nearestInput = document.getElementById('distNearest');
+  if (distances.nearest.dist < 2.5 && distances.nearest.dir) {
+    let dirText = distances.nearest.dir;
+    if (dirText === 'back') dirText = 'atrás';
+    nearestLabel.textContent = `Más cercano: ${dirText}`;
+    nearestInput.value = formatDist(distances.nearest.dist);
+    closestDistanceTarget = { direction: distances.nearest.dir, targetType: distances.nearest.targetType, targetId: distances.nearest.targetId };
+  } else {
+    nearestLabel.textContent = 'No hay colisión cercana en ejes X/Z dentro de 2.5 m.';
+    nearestInput.value = '';
+    closestDistanceTarget = null;
+  }
+}
+
+function applyDistanceProp() {
+  const it = items.find(i => i.id === selectedId);
+  if (!it) return;
+  const { halfX, halfZ } = getOrientedHalfExtents(it);
+  const distances = getAxisDistances(it);
+  const leftValue = parseFloat(document.getElementById('distLeft').value);
+  const rightValue = parseFloat(document.getElementById('distRight').value);
+  const backValue = parseFloat(document.getElementById('distBack').value);
+  const frontValue = parseFloat(document.getElementById('distFront').value);
+  const nearestValue = parseFloat(document.getElementById('distNearest').value);
+
+  if (!Number.isNaN(leftValue)) {
+    if (distances.left.type === 'item' && distances.left.targetId) {
+      const other = items.find(i => i.id === distances.left.targetId);
+      const otherExt = getOrientedHalfExtents(other);
+      it.x = other.x + otherExt.halfX + halfX + leftValue;
+    } else {
+      it.x = leftValue + halfX;
+    }
+  }
+  if (!Number.isNaN(rightValue)) {
+    if (distances.right.type === 'item' && distances.right.targetId) {
+      const other = items.find(i => i.id === distances.right.targetId);
+      const otherExt = getOrientedHalfExtents(other);
+      it.x = other.x - otherExt.halfX - halfX - rightValue;
+    } else {
+      it.x = roomW - halfX - rightValue;
+    }
+  }
+  if (!Number.isNaN(backValue)) {
+    if (distances.back.type === 'item' && distances.back.targetId) {
+      const other = items.find(i => i.id === distances.back.targetId);
+      const otherExt = getOrientedHalfExtents(other);
+      it.z = other.z + otherExt.halfZ + halfZ + backValue;
+    } else {
+      it.z = backValue + halfZ;
+    }
+  }
+  if (!Number.isNaN(frontValue)) {
+    if (distances.front.type === 'item' && distances.front.targetId) {
+      const other = items.find(i => i.id === distances.front.targetId);
+      const otherExt = getOrientedHalfExtents(other);
+      it.z = other.z - otherExt.halfZ - halfZ - frontValue;
+    } else {
+      it.z = roomD - halfZ - frontValue;
+    }
+  }
+
+  if (!Number.isNaN(nearestValue) && closestDistanceTarget) {
+    const direction = closestDistanceTarget.direction;
+    const axisInfo = distances[direction];
+    if (axisInfo.type === 'item' && axisInfo.targetId) {
+      const other = items.find(i => i.id === axisInfo.targetId);
+      const otherExt = getOrientedHalfExtents(other);
+      if (direction === 'left') it.x = other.x + otherExt.halfX + halfX + nearestValue;
+      if (direction === 'right') it.x = other.x - otherExt.halfX - halfX - nearestValue;
+      if (direction === 'back') it.z = other.z + otherExt.halfZ + halfZ + nearestValue;
+      if (direction === 'front') it.z = other.z - otherExt.halfZ - halfZ - nearestValue;
+    } else {
+      if (direction === 'left') it.x = halfX + nearestValue;
+      if (direction === 'right') it.x = roomW - halfX - nearestValue;
+      if (direction === 'back') it.z = halfZ + nearestValue;
+      if (direction === 'front') it.z = roomD - halfZ - nearestValue;
+    }
+  }
+  it.x = clamp(it.x, halfX, roomW - halfX);
+  it.z = clamp(it.z, halfZ, roomD - halfZ);
+  const mesh = furnitureGroup.children.find(c => c.userData.itemId === it.id);
+  if (mesh) {
+    mesh.position.x = it.x;
+    mesh.position.z = it.z;
+  }
+  rebuildItem(it);
+  updateSelectionHighlight();
+  updateDistancePanel();
+  if (mode === '2d') draw2d();
+  save();
 }
 
 function magnetizePosition(item, targetX, targetZ) {
@@ -1290,7 +1581,6 @@ function magnetizePosition(item, targetX, targetZ) {
   if (Math.abs(back) < MAGNET_RANGE) z = halfZ;
   if (Math.abs(front - roomD) < MAGNET_RANGE) z = roomD - halfZ;
 
-  // Snap to other pared objects if están cerca
   items.forEach(other => {
     if (!other.id || other.id === item.id) return;
     if (other.type !== 'custom_pared' && item.type !== 'custom_pared') return;
@@ -1317,7 +1607,6 @@ window.selectCatalog = function(type) {
     if (el.dataset.type === type || el.onclick?.toString().includes(`'${type}'`))
       el.style.borderColor = '#e94560';
   });
-  // Find by onclick text
   document.querySelectorAll('.catalog-item').forEach(el => {
     const oc = el.getAttribute('onclick') || '';
     if (oc.includes(`'${type}'`)) el.style.borderColor = '#e94560';
@@ -1345,6 +1634,7 @@ function selectItem(id) {
   if (id) { p.classList.add('active'); refreshProps(); }
   else { p.classList.remove('active'); }
   updateSelectionHighlight();
+  updateDistancePanel();
   if (mode === '2d') draw2d();
 }
 
@@ -1427,8 +1717,6 @@ window.addCustom = function() {
   const defName = DEFS[type] ? DEFS[type].name : 'Custom';
   const finalName = nameInput || `${defName} (${w}x${d}m)`;
   const finalColor = DEFS[type] ? DEFS[type].color : '#8B6F5E';
-
-  // Si es viga, nace arriba en el techo, sino abajo en el suelo (0)
   const yOffsetCalculated = (type === 'custom_viga') ? (wallH - h) : 0;
 
   const item = {
@@ -1478,6 +1766,13 @@ window.toggleWalls = function() {
   buildRoom();
 };
 
+window.toggleDistances = function() {
+  showDistances = !showDistances;
+  document.getElementById('distBtn').textContent = 'Distancias: ' + (showDistances ? 'ON' : 'OFF');
+  updateDistancePanel();
+  if (mode === '2d') draw2d();
+};
+
 window.setMode = function(m) {
   mode = m;
   document.getElementById('mode3d').classList.toggle('active', m === '3d');
@@ -1507,7 +1802,6 @@ window.setMode = function(m) {
   }
 };
 
-// Keyboard
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'Delete' || e.key === 'Backspace') window.delSel();
@@ -1562,24 +1856,21 @@ function draw2d() {
   const tl = w2s2(0,0), br = w2s2(roomW, roomD);
   const rw = br.x - tl.x, rh = br.y - tl.y;
 
-  // Grid
   c.strokeStyle = '#ffffff08'; c.lineWidth = 1;
   const gs = zoom2 >= 0.5 ? 0.5 : 1;
   for (let x = 0; x <= roomW; x += gs) { const a = w2s2(x,0), b = w2s2(x,roomD); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
   for (let y = 0; y <= roomD; y += gs) { const a = w2s2(0,y), b = w2s2(roomW,y); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
 
-  // Room
   c.fillStyle = '#1e2a3a'; c.fillRect(tl.x, tl.y, rw, rh);
   c.strokeStyle = '#e0e0e0'; c.lineWidth = 3; c.strokeRect(tl.x, tl.y, rw, rh);
 
-  // Room dims
   c.fillStyle = '#aaa'; c.font = '11px Segoe UI'; c.textAlign = 'center';
   c.fillText(roomW.toFixed(1)+' m', tl.x+rw/2, tl.y-8);
   c.save(); c.translate(tl.x-10, tl.y+rh/2); c.rotate(-Math.PI/2);
   c.fillText(roomD.toFixed(1)+' m', 0, 0); c.restore();
 
-  // Items
   items.forEach(it => drawItem2d(it, it.id === selectedId));
+  drawDistanceAnnotations();
 }
 
 function drawItem2d(it, sel) {
@@ -1589,20 +1880,16 @@ function drawItem2d(it, sel) {
   const x = -pw/2, y = -ph/2;
   c.save(); c.translate(sc.x, sc.y); c.rotate(rad);
 
-  // Shadow
   c.fillStyle = 'rgba(0,0,0,.2)'; roundR(c, x+3, y+3, pw, ph, 4); c.fill();
 
-  // Shape
   const col = it.color;
   const dk = darken2d(col, .25), lt = lighten2d(col, .2);
   const dr = SHAPES2D[it.type] || SHAPES2D._default;
   dr(c, x, y, pw, ph, col, dk, lt);
 
-  // Outline
   c.strokeStyle = sel ? '#e94560' : 'rgba(255,255,255,.1)'; c.lineWidth = sel ? 2.5 : 1;
   c.strokeRect(x, y, pw, ph);
 
-  // Label
   const fs = Math.max(7, Math.min(12, Math.min(pw,ph)*.2));
   if (pw > 24 && ph > 14) {
     c.fillStyle = '#fff'; c.font = `bold ${fs}px Segoe UI`; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -1613,7 +1900,6 @@ function drawItem2d(it, sel) {
     c.shadowBlur = 0;
   }
 
-  // Rotation handle
   if (sel) {
     c.fillStyle = '#e94560'; c.beginPath(); c.arc(0, -ph/2-16, 6, 0, Math.PI*2); c.fill();
     c.strokeStyle = '#e94560'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0,-ph/2); c.lineTo(0,-ph/2-10); c.stroke();
@@ -1763,16 +2049,46 @@ const SHAPES2D = {
   }
 };
 
-// 2D Interaction
 function c2dXY(e) {
   const r = c2d.getBoundingClientRect(), t = e.touches ? e.touches[0] : e;
   return { x: t.clientX - r.left, y: t.clientY - r.top };
+}
+
+function hitDistanceAnnotation(sx, sy) {
+  return currentDistanceAnnotations.find(a => {
+    if (!a.textRect) return false;
+    return sx >= a.textRect.x && sx <= a.textRect.x + a.textRect.w && sy >= a.textRect.y && sy <= a.textRect.y + a.textRect.h;
+  });
+}
+
+function focusDistanceField(type) {
+  const map = {
+    left: 'distLeft',
+    right: 'distRight',
+    back: 'distBack',
+    front: 'distFront',
+    nearest: 'distNearest'
+  };
+  const id = map[type];
+  if (!id) return;
+  const input = document.getElementById(id);
+  if (input) {
+    input.focus();
+    input.select();
+  }
 }
 
 function on2dDown(e, pt) {
   if (selectedId) {
     const sel = items.find(i => i.id === selectedId);
     if (sel && rotHandle2d(pt.x, pt.y, sel)) { rot2 = sel; return; }
+    if (showDistances && mode === '2d') {
+      const hit = hitDistanceAnnotation(pt.x, pt.y);
+      if (hit) {
+        focusDistanceField(hit.type);
+        return;
+      }
+    }
   }
   const w = s2w2(pt.x, pt.y), h2 = hit2d(w.x, w.y);
   if (h2) {
@@ -1781,7 +2097,6 @@ function on2dDown(e, pt) {
     drag2 = { id: h2.id, ox: w.x - h2.x, oy: w.y - h2.z };
     return;
   }
-  // Place from catalog
   if (placingType) {
     const def = DEFS[placingType];
     const tempItem = { ...def, id: uid(), type: placingType, rot: 0, yOff: def.yOff || 0 };
@@ -1835,7 +2150,6 @@ function on2dUp() {
   if (wasDragging) save();
 }
 
-// Mouse on 2d canvas
 c2d.addEventListener('mousedown', e => { on2dDown(e, c2dXY(e)); });
 c2d.addEventListener('mousemove', e => { on2dMove(e, c2dXY(e)); });
 c2d.addEventListener('mouseup', on2dUp);
@@ -1850,7 +2164,6 @@ c2d.addEventListener('wheel', e => {
 }, { passive: false });
 c2d.addEventListener('contextmenu', e => e.preventDefault());
 
-// Touch on 2d canvas
 c2d.addEventListener('touchstart', e => {
   e.preventDefault();
   if (e.touches.length === 2) {
@@ -1877,7 +2190,6 @@ c2d.addEventListener('touchmove', e => {
 }, { passive: false });
 c2d.addEventListener('touchend', e => { e.preventDefault(); pinch2 = null; on2dUp(); }, { passive: false });
 
-// ===== RESIZE =====
 function onResize() {
   const w = container.clientWidth, h = container.clientHeight;
   camera.aspect = w / h;
@@ -1887,13 +2199,11 @@ function onResize() {
 }
 window.addEventListener('resize', onResize);
 
-// ===== INFO =====
 function updateInfo() {
   const totalPrice = items.reduce((sum, it) => sum + (parseFloat(it.price) || 0), 0);
   document.getElementById('infoBar').textContent = `${roomW.toFixed(1)}×${roomD.toFixed(1)}×${wallH.toFixed(1)}m | ${items.length} obj | Total: €${totalPrice.toFixed(2)}`;
 }
 
-// ===== ANIMATION LOOP =====
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -1901,12 +2211,10 @@ function animate() {
   if (mode !== '2d') renderer.render(scene, camera);
 }
 
-// ===== INIT =====
 (function initPersistence() {
   const data = loadStorage();
   const rooms = Object.values(data.rooms);
   if (rooms.length === 0 || !data.currentId || !data.rooms[data.currentId]) {
-    // Create first room
     const id = newRoomId();
     currentRoomId = id;
     const name = 'Cuarto 1';
